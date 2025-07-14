@@ -47,6 +47,7 @@ npm run android
 
 # Run on iOS simulator (Mac only)
 npm run ios
+```
 
 ## 🧰 Tech Stack
 
@@ -100,6 +101,7 @@ To reset the project:
 ```bash
 npm run reset-project
 
+```
 
 ## 🤝 Contributing
 
