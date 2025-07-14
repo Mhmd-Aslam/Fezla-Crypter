@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1a1a2e"
       },
-      "package": "com.fezla.crypter"
+      "package": "com.mhmdaslam.fezlacrypter"
     },
     "web": {
       "bundler": "metro",
