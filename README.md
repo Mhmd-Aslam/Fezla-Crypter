@@ -110,11 +110,6 @@ Please open an issue or submit a pull request to help improve this app.
 
 ---
 
-## 📄 License
-
-This project is licensed under the **MIT License**.
-
----
 
 ## 📷 Screenshots
 
@@ -122,7 +117,8 @@ This project is licensed under the **MIT License**.
 
 ---
 
-## 💬 Contact
+## 📄 License
 
-Built with ❤️ by **Mhmd-Aslam**.
+This project is licensed under the **MIT License**.
 
+---
