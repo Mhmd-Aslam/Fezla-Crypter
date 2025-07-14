@@ -59,7 +59,7 @@ export default function CrypterApp() {
       
       setResult(decryptedText);
       setShowResult(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
       Alert.alert('Error', 'Decryption failed. Please check your key and message.');
     }
@@ -229,6 +229,11 @@ export default function CrypterApp() {
                 }
               </Text>
             </View>
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Developed by Mhmd-Aslam</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -435,5 +440,16 @@ const styles = StyleSheet.create({
     color: '#ccc',
     flex: 1,
     lineHeight: 20,
+  },
+  footer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  footerText: {
+    color: '#00d4ff',
+    fontSize: 14,
+    fontWeight: '400',
+    textAlign: 'center',
   },
 });
