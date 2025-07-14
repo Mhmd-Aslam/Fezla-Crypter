@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Fezla Crypter",
-    "slug": "fezla-crypter",
+    "slug": "fezla-crypter-v2",
     "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -37,6 +37,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2956108c-1afa-4644-bde4-c429f1e621d4"
+      }
     }
   }
 }
