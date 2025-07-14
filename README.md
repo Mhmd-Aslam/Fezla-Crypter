@@ -33,7 +33,7 @@ Fezla Crypter is a secure communication app for Android and iOS that allows user
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/fezla-crypter.git
+git clone https://github.com/Mhmd-Aslam/fezla-crypter.git
 cd fezla-crypter
 
 # Install dependencies
@@ -47,73 +47,80 @@ npm run android
 
 # Run on iOS simulator (Mac only)
 npm run ios
-🧰 Tech Stack
-React Native
 
-Expo
+## 🧰 Tech Stack
 
-TypeScript
+- **React Native**  
+- **Expo**  
+- **TypeScript**  
+- **React Native Crypto JS**  
+- **Expo Clipboard**  
+- **Expo Haptics**  
+- **Expo Router**
 
-React Native Crypto JS
+---
 
-Expo Clipboard
+## 🔒 Security Features
 
-Expo Haptics
+- ✅ AES-256 encryption algorithm  
+- ✅ No local data storage  
+- ✅ Secure key handling (user-controlled)  
+- ✅ Real-time encryption/decryption
 
-Expo Router
+---
 
-🔒 Security Features
-✅ AES-256 encryption algorithm
+## 📱 Usage
 
-✅ No local data storage
+### 🔐 Encryption
 
-✅ Secure key handling (user-controlled)
+1. Switch to the **"Encrypt"** tab.  
+2. Enter your secret message.  
+3. Enter a secret key.  
+4. Tap **"Encrypt Message"**.  
+5. Copy the result and share it.
 
-✅ Real-time encryption/decryption
+### 🔓 Decryption
 
-📱 Usage
-🔐 Encryption
-Switch to the "Encrypt" tab.
+1. Switch to the **"Decrypt"** tab.  
+2. Paste the encrypted message.  
+3. Enter the same secret key.  
+4. Tap **"Decrypt Message"** to reveal the original.
 
-Enter your secret message.
+---
 
-Enter a secret key.
+## 🧑‍💻 Development
 
-Tap "Encrypt Message".
-
-Copy the result and share it.
-
-🔓 Decryption
-Switch to the "Decrypt" tab.
-
-Paste the encrypted message.
-
-Enter the same secret key.
-
-Tap "Decrypt Message" to reveal the original.
-
-🧑‍💻 Development
 This project uses:
 
-Expo Router for navigation
+- **Expo Router** for navigation  
+- **TypeScript** for strong typing and safer development
 
-TypeScript for strong typing and safer development
+To reset the project:
 
-You can reset the project using:
-
-bash
-Copy
-Edit
+```bash
 npm run reset-project
 
-🤝 Contributing
-We welcome contributions!
+
+## 🤝 Contributing
+
+We welcome contributions!  
 Please open an issue or submit a pull request to help improve this app.
 
-📄 License
-This project is licensed under the MIT License.
+---
 
-📷 Screenshots
+## 📄 License
 
-💬 Contact
-Built with ❤️ by Mhmd-Aslam.
+This project is licensed under the **MIT License**.
+
+---
+
+## 📷 Screenshots
+
+
+
+---
+
+## 💬 Contact
+
+Built with ❤️ by **Mhmd-Aslam**.
+
