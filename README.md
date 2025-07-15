@@ -113,11 +113,10 @@ Please open an issue or submit a pull request to help improve this app.
 
 ## 📷 Screenshots
 
-### 🔐 Encryption Screen
-![Encryption Screen](./assets/Ss01.jpg)
-
-### 🔓 Decryption Screen
-![Decryption Screen](./assets/Ss02.jpg)
+<p align="center">
+  <img src="./assets/Ss01.jpg" alt="Encryption Screen" width="45%" style="margin-right: 10px;"/>
+  <img src="./assets/Ss02.jpg" alt="Decryption Screen" width="45%"/>
+</p>
 
 
 
