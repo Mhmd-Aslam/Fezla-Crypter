@@ -4,7 +4,7 @@
 node_modules/
 
 #vscode
-.vscode/
+.vscode
 
 # Expo
 .expo/
