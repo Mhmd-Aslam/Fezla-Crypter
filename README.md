@@ -113,6 +113,12 @@ Please open an issue or submit a pull request to help improve this app.
 
 ## 📷 Screenshots
 
+### 🔐 Encryption Screen
+![Encryption Screen](./assets/Ss01.png)
+
+### 🔓 Decryption Screen
+![Decryption Screen](./assets/Ss02.png)
+
 
 
 ---
