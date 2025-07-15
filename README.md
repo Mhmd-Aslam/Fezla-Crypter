@@ -114,8 +114,8 @@ Please open an issue or submit a pull request to help improve this app.
 ## 📷 Screenshots
 
 <p align="center">
-  <img src="./assets/Ss01.jpg" alt="Encryption Screen" width="45%" style="margin-right: 10px;"/>
-  <img src="./assets/Ss02.jpg" alt="Decryption Screen" width="45%"/>
+  <img src="./assets/Ss01.jpg" alt="Encryption Screen" width="25%" style="margin-right: 20px;"/>
+  <img src="./assets/Ss02.jpg" alt="Decryption Screen" width="25%"/>
 </p>
 
 
