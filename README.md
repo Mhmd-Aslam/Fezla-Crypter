@@ -6,7 +6,8 @@ Fezla Crypter is a secure communication app for Android and iOS that allows user
 
 ## 📲 Download APK
 
-👉 [Click here to download the APK](https://github.com/Mhmd-Aslam/Fezla-Crypter/raw/main/bin/fezlacrypter-2.0-sdk.apk)
+👉 [Click here to download the APK](https://github.com/Mhmd-Aslam/Fezla-Crypter/releases/download/v2.0/fezlacrypter-2.0-sdk.apk)
+
 
 
 ## 🚀 Features
