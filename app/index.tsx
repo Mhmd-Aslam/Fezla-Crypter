@@ -10,12 +10,15 @@ import {
   Dimensions,
   Platform,
   KeyboardAvoidingView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import CryptoJS from 'react-native-crypto-js';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 
 const { width, height } = Dimensions.get('window');
 
@@ -25,6 +28,19 @@ export default function CrypterApp() {
   const [key, setKey] = useState('');
   const [result, setResult] = useState('');
   const [showResult, setShowResult] = useState(false);
+
+  // Image encryption/decryption states
+  const [selectedImage, setSelectedImage] = useState<any>(null);
+  const [encryptedImageText, setEncryptedImageText] = useState('');
+  const [decryptedImageUri, setDecryptedImageUri] = useState('');
+  const [imageKey, setImageKey] = useState('');
+  const [imageTextInput, setImageTextInput] = useState('');
+  const [showImageResult, setShowImageResult] = useState(false);
+  const [isEncryptingImage, setIsEncryptingImage] = useState(false);
+  const [isDecryptingImage, setIsDecryptingImage] = useState(false);
+
+  // Add state for debug info:
+  const [decryptionDebug, setDecryptionDebug] = useState('');
 
   const encrypt = () => {
     if (!message.trim() || !key.trim()) {
@@ -81,6 +97,161 @@ export default function CrypterApp() {
   const switchTab = (tab: 'encrypt' | 'decrypt') => {
     setActiveTab(tab);
     clearFields();
+  };
+
+  // Pick image from gallery or camera
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8, // Reduced from 1.0 to 0.8 for better performance
+      base64: true,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setSelectedImage(result.assets[0]);
+    }
+  };
+
+  // Encrypt image to text
+  const encryptImage = async () => {
+    if (!selectedImage || !imageKey.trim()) {
+      Alert.alert('Error', 'Please select an image and enter a key');
+      return;
+    }
+  
+    setIsEncryptingImage(true);
+  
+    try {
+      const base64 = selectedImage.base64 || '';
+      if (!base64) {
+        Alert.alert('Error', 'Failed to get image data.');
+        setIsEncryptingImage(false);
+        return;
+      }
+      
+      // Check if image is too large (more than 5MB)
+      const sizeInMB = (base64.length * 0.75 / (1024 * 1024));
+      if (sizeInMB > 5) {
+        Alert.alert('Error', 'Image is too large. Please select a smaller image or reduce quality.');
+        setIsEncryptingImage(false);
+        return;
+      }
+      
+      // Add timeout for encryption
+      const encryptionPromise = new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            const encrypted = CryptoJS.AES.encrypt(base64, imageKey).toString();
+            resolve(encrypted);
+          } catch (error) {
+            reject(error);
+          }
+        }, 10000); // 10 second timeout
+      });
+      
+      const encrypted = await encryptionPromise as string;
+      setEncryptedImageText(encrypted);
+      setShowImageResult(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('Error', 'Image encryption failed. Try with a smaller image.');
+    } finally {
+      setIsEncryptingImage(false);
+    }
+  };
+
+  // Decrypt text to image
+  const decryptImage = async () => {
+    if (!imageTextInput.trim() || !imageKey.trim()) {
+      Alert.alert('Error', 'Please paste the encrypted text and enter the key');
+      return;
+    }
+    setIsDecryptingImage(true);
+    setDecryptionDebug('');
+    try {
+      const trimmedText = imageTextInput.trim();
+      // Add debug: show encrypted text length
+      setDecryptionDebug(`Encrypted text length: ${trimmedText.length}`);
+      // Add timeout for decryption
+      const decryptionPromise = new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
+            const base64 = decrypted.toString(CryptoJS.enc.Utf8);
+            // Add debug: show first 40 chars of base64
+            setDecryptionDebug(prev => prev + `\nBase64 preview: ${base64.slice(0, 40)}`);
+            if (!base64 || base64.length < 100) {
+              reject(new Error('Invalid key or corrupted text'));
+              return;
+            }
+            // Detect image type
+            let mime = '';
+            if (base64.startsWith('/9j/')) mime = 'image/jpeg';
+            else if (base64.startsWith('iVBORw0KGgo')) mime = 'image/png';
+            else if (base64.startsWith('R0lGODlh')) mime = 'image/gif';
+            else {
+              reject(new Error('Decrypted data is not a valid image'));
+              return;
+            }
+            resolve({ base64, mime });
+          } catch (error) {
+            reject(error);
+          }
+        }, 5000);
+      });
+      const { base64, mime } = await decryptionPromise as { base64: string, mime: string };
+      const uri = `data:${mime};base64,${base64}`;
+      setDecryptedImageUri(uri);
+      setShowImageResult(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Decryption error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setDecryptionDebug(prev => prev + `\nError: ${errorMessage}`);
+      if (errorMessage === 'Invalid key or corrupted text') {
+        Alert.alert('Error', 'Invalid key or corrupted text. Please check your key and encrypted text.');
+      } else if (errorMessage === 'Decrypted data is not a valid image') {
+        Alert.alert('Error', 'The decrypted data is not a valid image. Please check your encrypted text.');
+      } else {
+        Alert.alert('Error', 'Image decryption failed. Please check your key and encrypted text.');
+      }
+    } finally {
+      setIsDecryptingImage(false);
+    }
+  };
+
+  // Save decrypted image to device
+  const saveDecryptedImage = async () => {
+    if (!decryptedImageUri) return;
+    try {
+      const base64 = decryptedImageUri.split(',')[1];
+      if (!base64) {
+        Alert.alert('Error', 'No image data to save.');
+        return;
+      }
+      const fileUri = FileSystem.documentDirectory + `decrypted_image_${Date.now()}.jpg`;
+      await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+      Alert.alert('Success', 'Image saved to device!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save image.');
+    }
+  };
+
+  // Copy encrypted image text
+  const copyImageText = async () => {
+    await Clipboard.setStringAsync(encryptedImageText);
+    Alert.alert('Success', 'Encrypted image text copied!');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  // Clear image fields
+  const clearImageFields = () => {
+    setSelectedImage(null);
+    setEncryptedImageText('');
+    setDecryptedImageUri('');
+    setImageKey('');
+    setImageTextInput('');
+    setShowImageResult(false);
   };
 
   return (
@@ -180,6 +351,94 @@ export default function CrypterApp() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {activeTab === 'encrypt' && (
+            <View style={[styles.inputSection, { marginTop: 0 }]}>  
+              <Text style={styles.inputLabel}>Image Encryption</Text>
+              <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+                <Ionicons name="image" size={20} color="#fff" />
+                <Text style={styles.buttonText}>{selectedImage ? 'Change Image' : 'Pick Image'}</Text>
+              </TouchableOpacity>
+              {selectedImage && selectedImage.uri && (
+                <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                  <Image source={{ uri: selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
+                </View>
+              )}
+              <TextInput
+                style={styles.keyInput}
+                placeholder="Enter key for image..."
+                placeholderTextColor="#666"
+                value={imageKey}
+                onChangeText={setImageKey}
+                secureTextEntry
+              />
+              <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
+                <Ionicons name="shield" size={20} color="#fff" />
+                <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+              {showImageResult && !!encryptedImageText && (
+                <View style={styles.resultSection}>
+                  <Text style={styles.resultLabel}>Encrypted Image Text</Text>
+                  <ScrollView style={{ maxHeight: 120 }}>
+                    <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
+                  </ScrollView>
+                  <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
+                    <Ionicons name="copy" size={20} color="#00d4ff" />
+                    <Text style={styles.copyButtonText}>Copy</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+          {activeTab === 'decrypt' && (
+            <View style={[styles.inputSection, { marginTop: 0 }]}>  
+              <Text style={styles.inputLabel}>Image Decryption</Text>
+              <TextInput
+                style={styles.messageInput}
+                multiline
+                placeholder="Paste encrypted image text here..."
+                placeholderTextColor="#666"
+                value={imageTextInput}
+                onChangeText={setImageTextInput}
+                textAlignVertical="top"
+              />
+              <TextInput
+                style={styles.keyInput}
+                placeholder="Enter key for image..."
+                placeholderTextColor="#666"
+                value={imageKey}
+                onChangeText={setImageKey}
+                secureTextEntry
+              />
+              <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
+                <Ionicons name="shield-checkmark" size={20} color="#fff" />
+                <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+              {showImageResult && !!decryptedImageUri && (
+                <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                  <Image source={{ uri: decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
+                  <TouchableOpacity style={[styles.actionButton, { marginTop: 10 }]} onPress={saveDecryptedImage}>
+                    <Ionicons name="download" size={20} color="#fff" />
+                    <Text style={styles.buttonText}>Save Image</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {decryptionDebug ? (
+                <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginTop: 10 }}>
+                  <Text style={{ color: '#fff', fontSize: 12 }}>Debug Info:</Text>
+                  <Text style={{ color: '#0ff', fontSize: 12 }}>{decryptionDebug}</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
           {/* Result Section */}
           {showResult && (
