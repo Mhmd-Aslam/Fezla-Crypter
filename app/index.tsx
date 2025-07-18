@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import CryptoJS from 'react-native-crypto-js';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 const { width, height } = Dimensions.get('window');
 
@@ -222,18 +223,69 @@ export default function CrypterApp() {
 
   // Save decrypted image to device
   const saveDecryptedImage = async () => {
-    if (!decryptedImageUri) return;
+    if (!decryptedImageUri) {
+      Alert.alert('Error', 'No image to save. Please decrypt an image first.');
+      return;
+    }
+    
     try {
+      // Request permissions first
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to save images to your gallery.');
+        return;
+      }
+      
+      // Extract base64 and determine file extension
       const base64 = decryptedImageUri.split(',')[1];
       if (!base64) {
         Alert.alert('Error', 'No image data to save.');
         return;
       }
-      const fileUri = FileSystem.documentDirectory + `decrypted_image_${Date.now()}.jpg`;
-      await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-      Alert.alert('Success', 'Image saved to device!');
+      
+      // Determine file extension based on image type
+      let fileExtension = 'jpg'; // default
+      if (decryptedImageUri.includes('image/png')) {
+        fileExtension = 'png';
+      } else if (decryptedImageUri.includes('image/gif')) {
+        fileExtension = 'gif';
+      }
+      
+      // Create filename with timestamp
+      const timestamp = Date.now();
+      const filename = `decrypted_image_${timestamp}.${fileExtension}`;
+      
+      console.log('Saving image as:', filename);
+      console.log('Image type:', fileExtension);
+      console.log('Base64 length:', base64.length);
+      
+      // Save to temporary file first
+      const tempUri = FileSystem.documentDirectory + filename;
+      await FileSystem.writeAsStringAsync(tempUri, base64, { 
+        encoding: FileSystem.EncodingType.Base64 
+      });
+      
+      // Save to media library
+      const asset = await MediaLibrary.createAssetAsync(tempUri);
+      await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
+      
+      console.log('Image saved successfully to gallery');
+      Alert.alert('Success', `Image saved to gallery as ${filename}`);
+      
+      // Clean up temp file
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+      
     } catch (error) {
-      Alert.alert('Error', 'Failed to save image.');
+      console.error('Save image error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (errorMessage.includes('permission')) {
+        Alert.alert('Error', 'Permission denied. Please check app permissions.');
+      } else if (errorMessage.includes('storage')) {
+        Alert.alert('Error', 'Storage error. Please check available space.');
+      } else {
+        Alert.alert('Error', `Failed to save image: ${errorMessage}`);
+      }
     }
   };
 
