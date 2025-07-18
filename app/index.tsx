@@ -502,7 +502,7 @@ export default function CrypterApp() {
           {mode === 'image' && (
             <>
               {activeTab === 'encrypt' && (
-                <View style={styles.inputSection}>  
+                <View style={[styles.inputSection, { marginTop: 0 }]}>  
                   <Text style={styles.inputLabel}>Image Encryption</Text>
                   <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
                     <Ionicons name="image" size={20} color="#fff" />
@@ -513,22 +513,27 @@ export default function CrypterApp() {
                       <Image source={{ uri: selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
                     </View>
                   )}
-                  <TextInput
-                    style={styles.keyInput}
-                    placeholder="Enter key for image..."
-                    placeholderTextColor="#666"
-                    value={imageKey}
-                    onChangeText={setImageKey}
-                    secureTextEntry
-                  />
-                  <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
-                    <Ionicons name="shield" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
-                    <Ionicons name="refresh" size={20} color="#ff6b6b" />
-                    <Text style={styles.clearButtonText}>Clear</Text>
-                  </TouchableOpacity>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Secret Key</Text>
+                    <TextInput
+                      style={styles.keyInput}
+                      placeholder="Enter key for image..."
+                      placeholderTextColor="#666"
+                      value={imageKey}
+                      onChangeText={setImageKey}
+                      secureTextEntry
+                    />
+                  </View>
+                  <View style={styles.buttonContainer}>
+                    <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
+                      <Ionicons name="shield" size={20} color="#fff" />
+                      <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                      <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                      <Text style={styles.clearButtonText}>Clear</Text>
+                    </TouchableOpacity>
+                  </View>
                   {showImageResult && !!encryptedImageText && (
                     <View style={styles.resultSection}>
                       <Text style={styles.resultLabel}>Encrypted Image Text</Text>
@@ -545,37 +550,48 @@ export default function CrypterApp() {
               )}
 
               {activeTab === 'decrypt' && (
-                <View style={styles.inputSection}>  
+                <View style={[styles.inputSection, { marginTop: 0 }]}>  
                   <Text style={styles.inputLabel}>Image Decryption</Text>
-                  <TextInput
-                    style={styles.messageInput}
-                    multiline
-                    placeholder="Paste encrypted image text here..."
-                    placeholderTextColor="#666"
-                    value={imageTextInput}
-                    onChangeText={setImageTextInput}
-                    textAlignVertical="top"
-                  />
-                  <TextInput
-                    style={styles.keyInput}
-                    placeholder="Enter key for image..."
-                    placeholderTextColor="#666"
-                    value={imageKey}
-                    onChangeText={setImageKey}
-                    secureTextEntry
-                  />
-                  <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
-                    <Ionicons name="shield-checkmark" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
-                    <Ionicons name="refresh" size={20} color="#ff6b6b" />
-                    <Text style={styles.clearButtonText}>Clear</Text>
-                  </TouchableOpacity>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Encrypted Image Text</Text>
+                    <TextInput
+                      style={styles.messageInput}
+                      multiline
+                      placeholder="Paste encrypted image text here..."
+                      placeholderTextColor="#666"
+                      value={imageTextInput}
+                      onChangeText={setImageTextInput}
+                      textAlignVertical="top"
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Secret Key</Text>
+                    <TextInput
+                      style={styles.keyInput}
+                      placeholder="Enter key for image..."
+                      placeholderTextColor="#666"
+                      value={imageKey}
+                      onChangeText={setImageKey}
+                      secureTextEntry
+                    />
+                  </View>
+                  <View style={styles.buttonContainer}>
+                    <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
+                      <Ionicons name="shield-checkmark" size={20} color="#fff" />
+                      <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                      <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                      <Text style={styles.clearButtonText}>Clear</Text>
+                    </TouchableOpacity>
+                  </View>
                   {showImageResult && !!decryptedImageUri && (
                     <View style={{ alignItems: 'center', marginVertical: 10 }}>
                       <Image source={{ uri: decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
-                      <TouchableOpacity style={[styles.actionButton, { marginTop: 10 }]} onPress={saveDecryptedImage}>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, { marginTop: 10, width: '30%', alignSelf: 'center' }]} 
+                        onPress={saveDecryptedImage}
+                      >
                         <Ionicons name="download" size={20} color="#fff" />
                         <Text style={styles.buttonText}>Save Image</Text>
                       </TouchableOpacity>
