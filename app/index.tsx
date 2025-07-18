@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,15 +42,16 @@ export default function CrypterApp() {
   const [isEncryptingImage, setIsEncryptingImage] = useState(false);
   const [isDecryptingImage, setIsDecryptingImage] = useState(false);
 
-  // Add state for debug info:
-  const [decryptionDebug, setDecryptionDebug] = useState('');
+  // Add state for text mode loading
+  const [isEncryptingText, setIsEncryptingText] = useState(false);
+  const [isDecryptingText, setIsDecryptingText] = useState(false);
 
-  const encrypt = () => {
+  const encrypt = async () => {
     if (!message.trim() || !key.trim()) {
       Alert.alert('Error', 'Please enter both message and key');
       return;
     }
-
+    setIsEncryptingText(true);
     try {
       const encrypted = CryptoJS.AES.encrypt(message, key).toString();
       setResult(encrypted);
@@ -57,15 +59,17 @@ export default function CrypterApp() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       Alert.alert('Error', 'Encryption failed. Please try again.');
+    } finally {
+      setIsEncryptingText(false);
     }
   };
 
-  const decrypt = () => {
+  const decrypt = async () => {
     if (!message.trim() || !key.trim()) {
       Alert.alert('Error', 'Please enter both encrypted message and key');
       return;
     }
-
+    setIsDecryptingText(true);
     try {
       const decrypted = CryptoJS.AES.decrypt(message, key);
       const decryptedText = decrypted.toString(CryptoJS.enc.Utf8);
@@ -80,6 +84,8 @@ export default function CrypterApp() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
       Alert.alert('Error', 'Decryption failed. Please check your key and message.');
+    } finally {
+      setIsDecryptingText(false);
     }
   };
 
@@ -177,19 +183,14 @@ export default function CrypterApp() {
       return;
     }
     setIsDecryptingImage(true);
-    setDecryptionDebug('');
     try {
       const trimmedText = imageTextInput.trim();
-      // Add debug: show encrypted text length
-      setDecryptionDebug(`Encrypted text length: ${trimmedText.length}`);
       // Add timeout for decryption
       const decryptionPromise = new Promise((resolve, reject) => {
         setTimeout(() => {
           try {
             const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
             const base64 = decrypted.toString(CryptoJS.enc.Utf8);
-            // Add debug: show first 40 chars of base64
-            setDecryptionDebug(prev => prev + `\nBase64 preview: ${base64.slice(0, 40)}`);
             if (!base64 || base64.length < 100) {
               reject(new Error('Invalid key or corrupted text'));
               return;
@@ -217,7 +218,6 @@ export default function CrypterApp() {
     } catch (error) {
       console.error('Decryption error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setDecryptionDebug(prev => prev + `\nError: ${errorMessage}`);
       if (errorMessage === 'Invalid key or corrupted text') {
         Alert.alert('Error', 'Invalid key or corrupted text. Please check your key and encrypted text.');
       } else if (errorMessage === 'Decrypted data is not a valid image') {
@@ -409,6 +409,9 @@ export default function CrypterApp() {
                     onChangeText={setMessage}
                     textAlignVertical="top"
                   />
+                  <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
+                    {message.length} chars
+                  </Text>
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -428,6 +431,7 @@ export default function CrypterApp() {
                   <TouchableOpacity
                     style={styles.actionButton}
                     onPress={activeTab === 'encrypt' ? encrypt : decrypt}
+                    disabled={isEncryptingText || isDecryptingText}
                   >
                     <Ionicons 
                       name={activeTab === 'encrypt' ? 'shield' : 'shield-checkmark'} 
@@ -435,8 +439,11 @@ export default function CrypterApp() {
                       color="#fff" 
                     />
                     <Text style={styles.buttonText}>
-                      {activeTab === 'encrypt' ? 'Encrypt Message' : 'Decrypt Message'}
+                      {activeTab === 'encrypt' ? (isEncryptingText ? 'Encrypting...' : 'Encrypt Message') : (isDecryptingText ? 'Decrypting...' : 'Decrypt Message')}
                     </Text>
+                    {(isEncryptingText || isDecryptingText) && (
+                      <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.clearButton} onPress={clearFields}>
@@ -528,6 +535,9 @@ export default function CrypterApp() {
                     <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
                       <Ionicons name="shield" size={20} color="#fff" />
                       <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
+                      {isEncryptingImage && (
+                        <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
                       <Ionicons name="refresh" size={20} color="#ff6b6b" />
@@ -540,6 +550,10 @@ export default function CrypterApp() {
                       <ScrollView style={{ maxHeight: 120 }}>
                         <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
                       </ScrollView>
+                      {/* Move length indicator below ScrollView */}
+                      <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
+                        {encryptedImageText.length} chars
+                      </Text>
                       <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
                         <Ionicons name="copy" size={20} color="#00d4ff" />
                         <Text style={styles.copyButtonText}>Copy</Text>
@@ -563,6 +577,9 @@ export default function CrypterApp() {
                       onChangeText={setImageTextInput}
                       textAlignVertical="top"
                     />
+                    <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
+                      {imageTextInput.length} chars
+                    </Text>
                   </View>
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Secret Key</Text>
@@ -579,6 +596,9 @@ export default function CrypterApp() {
                     <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
                       <Ionicons name="shield-checkmark" size={20} color="#fff" />
                       <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
+                      {isDecryptingImage && (
+                        <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
                       <Ionicons name="refresh" size={20} color="#ff6b6b" />
@@ -597,12 +617,6 @@ export default function CrypterApp() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {decryptionDebug ? (
-                    <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginTop: 10 }}>
-                      <Text style={{ color: '#fff', fontSize: 12 }}>Debug Info:</Text>
-                      <Text style={{ color: '#0ff', fontSize: 12 }}>{decryptionDebug}</Text>
-                    </View>
-                  ) : null}
                 </View>
               )}
 
