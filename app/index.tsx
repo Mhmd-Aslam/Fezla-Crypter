@@ -25,6 +25,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function CrypterApp() {
   const [activeTab, setActiveTab] = useState<'encrypt' | 'decrypt'>('encrypt');
+  const [mode, setMode] = useState<'text' | 'image'>('text'); // Add mode state
   const [message, setMessage] = useState('');
   const [key, setKey] = useState('');
   const [result, setResult] = useState('');
@@ -98,6 +99,14 @@ export default function CrypterApp() {
   const switchTab = (tab: 'encrypt' | 'decrypt') => {
     setActiveTab(tab);
     clearFields();
+    clearImageFields();
+  };
+
+  // Add function to switch modes:
+  const switchMode = (newMode: 'text' | 'image') => {
+    setMode(newMode);
+    clearFields();
+    clearImageFields();
   };
 
   // Pick image from gallery or camera
@@ -322,6 +331,36 @@ export default function CrypterApp() {
             <Text style={styles.subtitle}>Secure Communication Made Easy</Text>
           </View>
 
+          {/* Mode Toggle */}
+          <View style={styles.modeContainer}>
+            <TouchableOpacity
+              style={[styles.modeTab, mode === 'text' && styles.activeModeTab]}
+              onPress={() => switchMode('text')}
+            >
+              <Ionicons 
+                name="chatbubble" 
+                size={18} 
+                color={mode === 'text' ? '#1a1a2e' : '#00d4ff'} 
+              />
+              <Text style={[styles.modeText, mode === 'text' && styles.activeModeText]}>
+                Text
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeTab, mode === 'image' && styles.activeModeTab]}
+              onPress={() => switchMode('image')}
+            >
+              <Ionicons 
+                name="image" 
+                size={18} 
+                color={mode === 'image' ? '#1a1a2e' : '#00d4ff'} 
+              />
+              <Text style={[styles.modeText, mode === 'image' && styles.activeModeText]}>
+                Image
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Tab Switcher */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
@@ -352,195 +391,238 @@ export default function CrypterApp() {
             </TouchableOpacity>
           </View>
 
-          {/* Input Section */}
-          <View style={styles.inputSection}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                {activeTab === 'encrypt' ? 'Secret Message' : 'Encrypted Message'}
-              </Text>
-              <TextInput
-                style={styles.messageInput}
-                multiline
-                placeholder={activeTab === 'encrypt' ? 'Enter your secret message...' : 'Paste encrypted message here...'}
-                placeholderTextColor="#666"
-                value={message}
-                onChangeText={setMessage}
-                textAlignVertical="top"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Secret Key</Text>
-              <TextInput
-                style={styles.keyInput}
-                placeholder="Enter your secret key..."
-                placeholderTextColor="#666"
-                value={key}
-                onChangeText={setKey}
-                secureTextEntry
-              />
-            </View>
-
-            {/* Action Buttons */}
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={activeTab === 'encrypt' ? encrypt : decrypt}
-              >
-                <Ionicons 
-                  name={activeTab === 'encrypt' ? 'shield' : 'shield-checkmark'} 
-                  size={20} 
-                  color="#fff" 
-                />
-                <Text style={styles.buttonText}>
-                  {activeTab === 'encrypt' ? 'Encrypt Message' : 'Decrypt Message'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.clearButton} onPress={clearFields}>
-                <Ionicons name="refresh" size={20} color="#ff6b6b" />
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {activeTab === 'encrypt' && (
-            <View style={[styles.inputSection, { marginTop: 0 }]}>  
-              <Text style={styles.inputLabel}>Image Encryption</Text>
-              <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
-                <Ionicons name="image" size={20} color="#fff" />
-                <Text style={styles.buttonText}>{selectedImage ? 'Change Image' : 'Pick Image'}</Text>
-              </TouchableOpacity>
-              {selectedImage && selectedImage.uri && (
-                <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                  <Image source={{ uri: selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
+          {/* Text Mode UI */}
+          {mode === 'text' && (
+            <>
+              {/* Input Section */}
+              <View style={styles.inputSection}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>
+                    {activeTab === 'encrypt' ? 'Secret Message' : 'Encrypted Message'}
+                  </Text>
+                  <TextInput
+                    style={styles.messageInput}
+                    multiline
+                    placeholder={activeTab === 'encrypt' ? 'Enter your secret message...' : 'Paste encrypted message here...'}
+                    placeholderTextColor="#666"
+                    value={message}
+                    onChangeText={setMessage}
+                    textAlignVertical="top"
+                  />
                 </View>
-              )}
-              <TextInput
-                style={styles.keyInput}
-                placeholder="Enter key for image..."
-                placeholderTextColor="#666"
-                value={imageKey}
-                onChangeText={setImageKey}
-                secureTextEntry
-              />
-              <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
-                <Ionicons name="shield" size={20} color="#fff" />
-                <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
-                <Ionicons name="refresh" size={20} color="#ff6b6b" />
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </TouchableOpacity>
-              {showImageResult && !!encryptedImageText && (
-                <View style={styles.resultSection}>
-                  <Text style={styles.resultLabel}>Encrypted Image Text</Text>
-                  <ScrollView style={{ maxHeight: 120 }}>
-                    <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
-                  </ScrollView>
-                  <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
-                    <Ionicons name="copy" size={20} color="#00d4ff" />
-                    <Text style={styles.copyButtonText}>Copy</Text>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Secret Key</Text>
+                  <TextInput
+                    style={styles.keyInput}
+                    placeholder="Enter your secret key..."
+                    placeholderTextColor="#666"
+                    value={key}
+                    onChangeText={setKey}
+                    secureTextEntry
+                  />
+                </View>
+
+                {/* Action Buttons */}
+                <View style={styles.buttonContainer}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={activeTab === 'encrypt' ? encrypt : decrypt}
+                  >
+                    <Ionicons 
+                      name={activeTab === 'encrypt' ? 'shield' : 'shield-checkmark'} 
+                      size={20} 
+                      color="#fff" 
+                    />
+                    <Text style={styles.buttonText}>
+                      {activeTab === 'encrypt' ? 'Encrypt Message' : 'Decrypt Message'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.clearButton} onPress={clearFields}>
+                    <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                    <Text style={styles.clearButtonText}>Clear</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
-          )}
-          {activeTab === 'decrypt' && (
-            <View style={[styles.inputSection, { marginTop: 0 }]}>  
-              <Text style={styles.inputLabel}>Image Decryption</Text>
-              <TextInput
-                style={styles.messageInput}
-                multiline
-                placeholder="Paste encrypted image text here..."
-                placeholderTextColor="#666"
-                value={imageTextInput}
-                onChangeText={setImageTextInput}
-                textAlignVertical="top"
-              />
-              <TextInput
-                style={styles.keyInput}
-                placeholder="Enter key for image..."
-                placeholderTextColor="#666"
-                value={imageKey}
-                onChangeText={setImageKey}
-                secureTextEntry
-              />
-              <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
-                <Ionicons name="shield-checkmark" size={20} color="#fff" />
-                <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
-                <Ionicons name="refresh" size={20} color="#ff6b6b" />
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </TouchableOpacity>
-              {showImageResult && !!decryptedImageUri && (
-                <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                  <Image source={{ uri: decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
-                  <TouchableOpacity style={[styles.actionButton, { marginTop: 10 }]} onPress={saveDecryptedImage}>
-                    <Ionicons name="download" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>Save Image</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              {decryptionDebug ? (
-                <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginTop: 10 }}>
-                  <Text style={{ color: '#fff', fontSize: 12 }}>Debug Info:</Text>
-                  <Text style={{ color: '#0ff', fontSize: 12 }}>{decryptionDebug}</Text>
-                </View>
-              ) : null}
-            </View>
-          )}
-
-          {/* Result Section */}
-          {showResult && (
-            <View style={styles.resultSection}>
-              <Text style={styles.resultLabel}>
-                {activeTab === 'encrypt' ? 'Encrypted Message' : 'Decrypted Message'}
-              </Text>
-              <View style={styles.resultContainer}>
-                <Text style={styles.resultText} selectable>
-                  {result}
-                </Text>
-                <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
-                  <Ionicons name="copy" size={20} color="#00d4ff" />
-                  <Text style={styles.copyButtonText}>Copy</Text>
-                </TouchableOpacity>
               </View>
-            </View>
+
+              {/* Result Section */}
+              {showResult && (
+                <View style={styles.resultSection}>
+                  <Text style={styles.resultLabel}>
+                    {activeTab === 'encrypt' ? 'Encrypted Message' : 'Decrypted Message'}
+                  </Text>
+                  <View style={styles.resultContainer}>
+                    <Text style={styles.resultText} selectable>
+                      {result}
+                    </Text>
+                    <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
+                      <Ionicons name="copy" size={20} color="#00d4ff" />
+                      <Text style={styles.copyButtonText}>Copy</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Text Instructions */}
+              <View style={styles.instructionsSection}>
+                <Text style={styles.instructionsTitle}>How to use Text Mode:</Text>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>1.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Type your secret message and create a secret key'
+                      : 'Paste the encrypted message and enter the secret key'
+                    }
+                  </Text>
+                </View>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>2.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Tap "Encrypt Message" to generate encrypted text'
+                      : 'Tap "Decrypt Message" to reveal the original message'
+                    }
+                  </Text>
+                </View>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>3.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Copy the encrypted message and share via WhatsApp or any chat app'
+                      : 'View your decrypted message'
+                    }
+                  </Text>
+                </View>
+              </View>
+            </>
           )}
 
-          {/* Instructions */}
-          <View style={styles.instructionsSection}>
-            <Text style={styles.instructionsTitle}>How to use:</Text>
-            <View style={styles.instructionItem}>
-              <Text style={styles.instructionNumber}>1.</Text>
-              <Text style={styles.instructionText}>
-                {activeTab === 'encrypt' 
-                  ? 'Type your secret message and create a secret key'
-                  : 'Paste the encrypted message and enter the secret key'
-                }
-              </Text>
-            </View>
-            <View style={styles.instructionItem}>
-              <Text style={styles.instructionNumber}>2.</Text>
-              <Text style={styles.instructionText}>
-                {activeTab === 'encrypt' 
-                  ? 'Tap "Encrypt Message" to generate encrypted text'
-                  : 'Tap "Decrypt Message" to reveal the original message'
-                }
-              </Text>
-            </View>
-            <View style={styles.instructionItem}>
-              <Text style={styles.instructionNumber}>3.</Text>
-              <Text style={styles.instructionText}>
-                {activeTab === 'encrypt' 
-                  ? 'Copy the encrypted message and share via WhatsApp or any chat app'
-                  : 'View your decrypted message'
-                }
-              </Text>
-            </View>
-          </View>
+          {/* Image Mode UI */}
+          {mode === 'image' && (
+            <>
+              {activeTab === 'encrypt' && (
+                <View style={styles.inputSection}>  
+                  <Text style={styles.inputLabel}>Image Encryption</Text>
+                  <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+                    <Ionicons name="image" size={20} color="#fff" />
+                    <Text style={styles.buttonText}>{selectedImage ? 'Change Image' : 'Pick Image'}</Text>
+                  </TouchableOpacity>
+                  {selectedImage && selectedImage.uri && (
+                    <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                      <Image source={{ uri: selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
+                    </View>
+                  )}
+                  <TextInput
+                    style={styles.keyInput}
+                    placeholder="Enter key for image..."
+                    placeholderTextColor="#666"
+                    value={imageKey}
+                    onChangeText={setImageKey}
+                    secureTextEntry
+                  />
+                  <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
+                    <Ionicons name="shield" size={20} color="#fff" />
+                    <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                    <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                    <Text style={styles.clearButtonText}>Clear</Text>
+                  </TouchableOpacity>
+                  {showImageResult && !!encryptedImageText && (
+                    <View style={styles.resultSection}>
+                      <Text style={styles.resultLabel}>Encrypted Image Text</Text>
+                      <ScrollView style={{ maxHeight: 120 }}>
+                        <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
+                      </ScrollView>
+                      <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
+                        <Ionicons name="copy" size={20} color="#00d4ff" />
+                        <Text style={styles.copyButtonText}>Copy</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {activeTab === 'decrypt' && (
+                <View style={styles.inputSection}>  
+                  <Text style={styles.inputLabel}>Image Decryption</Text>
+                  <TextInput
+                    style={styles.messageInput}
+                    multiline
+                    placeholder="Paste encrypted image text here..."
+                    placeholderTextColor="#666"
+                    value={imageTextInput}
+                    onChangeText={setImageTextInput}
+                    textAlignVertical="top"
+                  />
+                  <TextInput
+                    style={styles.keyInput}
+                    placeholder="Enter key for image..."
+                    placeholderTextColor="#666"
+                    value={imageKey}
+                    onChangeText={setImageKey}
+                    secureTextEntry
+                  />
+                  <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
+                    <Ionicons name="shield-checkmark" size={20} color="#fff" />
+                    <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                    <Ionicons name="refresh" size={20} color="#ff6b6b" />
+                    <Text style={styles.clearButtonText}>Clear</Text>
+                  </TouchableOpacity>
+                  {showImageResult && !!decryptedImageUri && (
+                    <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                      <Image source={{ uri: decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
+                      <TouchableOpacity style={[styles.actionButton, { marginTop: 10 }]} onPress={saveDecryptedImage}>
+                        <Ionicons name="download" size={20} color="#fff" />
+                        <Text style={styles.buttonText}>Save Image</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {decryptionDebug ? (
+                    <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginTop: 10 }}>
+                      <Text style={{ color: '#fff', fontSize: 12 }}>Debug Info:</Text>
+                      <Text style={{ color: '#0ff', fontSize: 12 }}>{decryptionDebug}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Image Instructions */}
+              <View style={styles.instructionsSection}>
+                <Text style={styles.instructionsTitle}>How to use Image Mode:</Text>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>1.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Select an image from your gallery and enter a secret key'
+                      : 'Paste the encrypted image text and enter the secret key'
+                    }
+                  </Text>
+                </View>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>2.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Tap "Encrypt Image" to convert image to encrypted text'
+                      : 'Tap "Decrypt Image" to convert text back to image'
+                    }
+                  </Text>
+                </View>
+                <View style={styles.instructionItem}>
+                  <Text style={styles.instructionNumber}>3.</Text>
+                  <Text style={styles.instructionText}>
+                    {activeTab === 'encrypt' 
+                      ? 'Copy the encrypted text and share via WhatsApp or any chat app'
+                      : 'View the decrypted image and save it to your gallery'
+                    }
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
 
           {/* Footer */}
           <View style={styles.footer}>
@@ -762,5 +844,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '400',
     textAlign: 'center',
+  },
+  modeContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 15,
+    backgroundColor: '#2a2a3e',
+    borderRadius: 20,
+    padding: 3,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 17,
+  },
+  activeModeTab: {
+    backgroundColor: '#00d4ff',
+  },
+  modeText: {
+    color: '#00d4ff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  activeModeText: {
+    color: '#1a1a2e',
   },
 });
