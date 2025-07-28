@@ -21,6 +21,10 @@ import CryptoJS from 'react-native-crypto-js';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+// @ts-ignore
+import * as Sharing from 'expo-sharing';
+// @ts-ignore
+import * as DocumentPicker from 'expo-document-picker';
 
 const { width, height } = Dimensions.get('window');
 
@@ -315,6 +319,123 @@ export default function CrypterApp() {
     setShowImageResult(false);
   };
 
+  // Export encrypted image text as .txt file
+  const exportEncryptedImageText = async () => {
+    if (!encryptedImageText) {
+      Alert.alert('Error', 'No encrypted image text to export.');
+      return;
+    }
+    try {
+      const timestamp = Date.now();
+      const filename = `encrypted_image_${timestamp}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
+      let shareUri = fileUri;
+      if (Platform.OS === 'android') {
+        try {
+          shareUri = await FileSystem.getContentUriAsync(fileUri);
+        } catch (err) {
+          console.error('getContentUriAsync failed:', err);
+          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
+          return;
+        }
+      }
+      try {
+        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
+      } catch (err) {
+        console.error('Sharing failed:', err);
+        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
+        return;
+      }
+      // Optionally delete temp file after sharing
+      try {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      } catch (err) {
+        console.warn('Failed to delete temp file:', err);
+      }
+    } catch (error) {
+      console.error('Export .txt error:', error);
+      Alert.alert('Error', 'Failed to export .txt file.');
+    }
+  };
+
+  // Import encrypted image text from .txt file
+  const importEncryptedImageText = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: 'text/plain' });
+      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0].uri) return;
+      const fileUri = res.assets[0].uri;
+      const content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
+      setImageTextInput(content);
+      Alert.alert('Success', 'Encrypted image text imported!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to import .txt file.');
+    }
+  };
+
+  // Download encrypted image text as .txt file to device
+  const downloadEncryptedImageText = async () => {
+    if (!encryptedImageText) {
+      Alert.alert('Error', 'No encrypted image text to download.');
+      return;
+    }
+    try {
+      const timestamp = Date.now();
+      const filename = `encrypted_image_${timestamp}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
+      // Save to media library (Downloads folder)
+      const asset = await MediaLibrary.createAssetAsync(fileUri);
+      await MediaLibrary.createAlbumAsync('Download', asset, false);
+      Alert.alert('Success', `File saved to Downloads as ${filename}`);
+      // Optionally delete temp file
+      await FileSystem.deleteAsync(fileUri, { idempotent: true });
+    } catch (error) {
+      console.error('Download .txt error:', error);
+      Alert.alert('Error', 'Failed to download .txt file.');
+    }
+  };
+
+  // Share encrypted image text as .txt file
+  const shareEncryptedImageText = async () => {
+    if (!encryptedImageText) {
+      Alert.alert('Error', 'No encrypted image text to share.');
+      return;
+    }
+    try {
+      const timestamp = Date.now();
+      const filename = `encrypted_image_${timestamp}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
+      let shareUri = fileUri;
+      if (Platform.OS === 'android') {
+        try {
+          shareUri = await FileSystem.getContentUriAsync(fileUri);
+        } catch (err) {
+          console.error('getContentUriAsync failed:', err);
+          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
+          return;
+        }
+      }
+      try {
+        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
+      } catch (err) {
+        console.error('Sharing failed:', err);
+        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
+        return;
+      }
+      // Optionally delete temp file after sharing
+      try {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      } catch (err) {
+        console.warn('Failed to delete temp file:', err);
+      }
+    } catch (error) {
+      console.error('Share .txt error:', error);
+      Alert.alert('Error', 'Failed to share .txt file.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
@@ -496,7 +617,7 @@ export default function CrypterApp() {
                   <Text style={styles.instructionNumber}>3.</Text>
                   <Text style={styles.instructionText}>
                     {activeTab === 'encrypt' 
-                      ? 'Copy the encrypted message and share via WhatsApp or any chat app'
+                      ? 'Copy the encrypted message and share via any chat app'
                       : 'View your decrypted message'
                     }
                   </Text>
@@ -550,14 +671,27 @@ export default function CrypterApp() {
                       <ScrollView style={{ maxHeight: 120 }}>
                         <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
                       </ScrollView>
-                      {/* Move length indicator below ScrollView */}
                       <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
                         {encryptedImageText.length} chars
                       </Text>
-                      <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
-                        <Ionicons name="copy" size={20} color="#00d4ff" />
-                        <Text style={styles.copyButtonText}>Copy</Text>
-                      </TouchableOpacity>
+                      {/* Copy button in top-right corner, only if text length <= 20000 */}
+                      {encryptedImageText.length <= 20000 && (
+                        <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
+                          <Ionicons name="copy" size={20} color="#00d4ff" />
+                          <Text style={styles.copyButtonText}>Copy</Text>
+                        </TouchableOpacity>
+                      )}
+                      {/* Row for Share and Download */}
+                      <View style={styles.resultButtonRow}>
+                        <TouchableOpacity style={styles.resultActionButton} onPress={shareEncryptedImageText}>
+                          <Ionicons name="share-social" size={20} color="#00d4ff" />
+                          <Text style={styles.copyButtonText}>Share via...</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.resultActionButton} onPress={downloadEncryptedImageText}>
+                          <Ionicons name="download" size={20} color="#00d4ff" />
+                          <Text style={styles.copyButtonText}>Download</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -568,15 +702,22 @@ export default function CrypterApp() {
                   <Text style={styles.inputLabel}>Image Decryption</Text>
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Encrypted Image Text</Text>
-                    <TextInput
-                      style={styles.messageInput}
-                      multiline
-                      placeholder="Paste encrypted image text here..."
-                      placeholderTextColor="#666"
-                      value={imageTextInput}
-                      onChangeText={setImageTextInput}
-                      textAlignVertical="top"
-                    />
+                    <View style={{ position: 'relative' }}>
+                      <TextInput
+                        style={styles.messageInput}
+                        multiline
+                        placeholder="Paste encrypted image text here..."
+                        placeholderTextColor="#666"
+                        value={imageTextInput}
+                        onChangeText={setImageTextInput}
+                        textAlignVertical="top"
+                      />
+                      {/* Import .txt button in top-right of textbox */}
+                      <TouchableOpacity style={[styles.copyButton, { top: 10, right: 10 }]} onPress={importEncryptedImageText}>
+                        <Ionicons name="document" size={20} color="#00d4ff" />
+                        <Text style={styles.copyButtonText}>Import .txt</Text>
+                      </TouchableOpacity>
+                    </View>
                     <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
                       {imageTextInput.length} chars
                     </Text>
@@ -628,7 +769,7 @@ export default function CrypterApp() {
                   <Text style={styles.instructionText}>
                     {activeTab === 'encrypt' 
                       ? 'Select an image from your gallery and enter a secret key'
-                      : 'Paste the encrypted image text and enter the secret key'
+                      : 'Paste the encrypted image text (or import from a .txt file) and enter the secret key'
                     }
                   </Text>
                 </View>
@@ -636,7 +777,7 @@ export default function CrypterApp() {
                   <Text style={styles.instructionNumber}>2.</Text>
                   <Text style={styles.instructionText}>
                     {activeTab === 'encrypt' 
-                      ? 'Tap "Encrypt Image" to convert image to encrypted text'
+                      ? 'Tap "Encrypt Image" to convert image to encrypted text (you can export or share this as a .txt file)'
                       : 'Tap "Decrypt Image" to convert text back to image'
                     }
                   </Text>
@@ -645,7 +786,7 @@ export default function CrypterApp() {
                   <Text style={styles.instructionNumber}>3.</Text>
                   <Text style={styles.instructionText}>
                     {activeTab === 'encrypt' 
-                      ? 'Copy the encrypted text and share via WhatsApp or any chat app'
+                      ? 'Copy the encrypted text and share via any chat app, or save/share as a .txt file'
                       : 'View the decrypted image and save it to your gallery'
                     }
                   </Text>
@@ -902,5 +1043,22 @@ const styles = StyleSheet.create({
   },
   activeModeText: {
     color: '#1a1a2e',
+  },
+  resultButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  resultActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a2e',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#00d4ff',
+    marginLeft: 0,
   },
 });
