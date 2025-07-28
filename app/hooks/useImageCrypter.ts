@@ -288,7 +288,7 @@ export function useImageCrypter() {
     }
     try {
       const timestamp = Date.now();
-      const filename = `data_${timestamp}.txt`;
+      const filename = `fezdata_${timestamp}.txt`;
       const fileUri = FileSystem.documentDirectory + filename;
       
       // Write the encrypted text to file
