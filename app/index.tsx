@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -15,426 +15,86 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
-import CryptoJS from 'react-native-crypto-js';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
-// @ts-ignore
-import * as Sharing from 'expo-sharing';
-// @ts-ignore
-import * as DocumentPicker from 'expo-document-picker';
+import { useTextCrypter } from './hooks/useTextCrypter';
+import { useImageCrypter } from './hooks/useImageCrypter';
 
 const { width, height } = Dimensions.get('window');
 
+const Header = memo(() => (
+  <View style={styles.header}>
+    <View style={styles.headerContent}>
+      <Ionicons name="shield-checkmark" size={32} color="#00d4ff" />
+      <Text style={styles.title}>Fezla Crypter</Text>
+    </View>
+    <Text style={styles.subtitle}>Secure Communication Made Easy</Text>
+  </View>
+));
+
+const ModeToggle = memo(({ mode, switchMode }: { mode: 'text' | 'image'; switchMode: (m: 'text' | 'image') => void }) => (
+  <View style={styles.modeContainer}>
+    <TouchableOpacity
+      style={[styles.modeTab, mode === 'text' && styles.activeModeTab]}
+      onPress={() => switchMode('text')}
+    >
+      <Ionicons name="chatbubble" size={18} color={mode === 'text' ? '#1a1a2e' : '#00d4ff'} />
+      <Text style={[styles.modeText, mode === 'text' && styles.activeModeText]}>Text</Text>
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={[styles.modeTab, mode === 'image' && styles.activeModeTab]}
+      onPress={() => switchMode('image')}
+    >
+      <Ionicons name="image" size={18} color={mode === 'image' ? '#1a1a2e' : '#00d4ff'} />
+      <Text style={[styles.modeText, mode === 'image' && styles.activeModeText]}>Image</Text>
+    </TouchableOpacity>
+  </View>
+));
+
+const TabSwitcher = memo(({ activeTab, switchTab }: { activeTab: 'encrypt' | 'decrypt'; switchTab: (t: 'encrypt' | 'decrypt') => void }) => (
+  <View style={styles.tabContainer}>
+    <TouchableOpacity
+      style={[styles.tab, activeTab === 'encrypt' && styles.activeTab]}
+      onPress={() => switchTab('encrypt')}
+    >
+      <Ionicons name="lock-closed" size={20} color={activeTab === 'encrypt' ? '#1a1a2e' : '#00d4ff'} />
+      <Text style={[styles.tabText, activeTab === 'encrypt' && styles.activeTabText]}>Encrypt</Text>
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={[styles.tab, activeTab === 'decrypt' && styles.activeTab]}
+      onPress={() => switchTab('decrypt')}
+    >
+      <Ionicons name="lock-open" size={20} color={activeTab === 'decrypt' ? '#1a1a2e' : '#00d4ff'} />
+      <Text style={[styles.tabText, activeTab === 'decrypt' && styles.activeTabText]}>Decrypt</Text>
+    </TouchableOpacity>
+  </View>
+));
+
+const Footer = memo(() => (
+  <View style={styles.footer}>
+    <Text style={styles.footerText}>Developed by Mhmd-Aslam</Text>
+  </View>
+));
+
 export default function CrypterApp() {
-  const [activeTab, setActiveTab] = useState<'encrypt' | 'decrypt'>('encrypt');
-  const [mode, setMode] = useState<'text' | 'image'>('text'); // Add mode state
-  const [message, setMessage] = useState('');
-  const [key, setKey] = useState('');
-  const [result, setResult] = useState('');
-  const [showResult, setShowResult] = useState(false);
+  const [activeTab, setActiveTab] = React.useState<'encrypt' | 'decrypt'>('encrypt');
+  const [mode, setMode] = React.useState<'text' | 'image'>('text');
 
-  // Image encryption/decryption states
-  const [selectedImage, setSelectedImage] = useState<any>(null);
-  const [encryptedImageText, setEncryptedImageText] = useState('');
-  const [decryptedImageUri, setDecryptedImageUri] = useState('');
-  const [imageKey, setImageKey] = useState('');
-  const [imageTextInput, setImageTextInput] = useState('');
-  const [showImageResult, setShowImageResult] = useState(false);
-  const [isEncryptingImage, setIsEncryptingImage] = useState(false);
-  const [isDecryptingImage, setIsDecryptingImage] = useState(false);
+  // Text mode hook
+  const textCrypter = useTextCrypter();
+  // Image mode hook
+  const imageCrypter = useImageCrypter();
 
-  // Add state for text mode loading
-  const [isEncryptingText, setIsEncryptingText] = useState(false);
-  const [isDecryptingText, setIsDecryptingText] = useState(false);
-
-  const encrypt = async () => {
-    if (!message.trim() || !key.trim()) {
-      Alert.alert('Error', 'Please enter both message and key');
-      return;
-    }
-    setIsEncryptingText(true);
-    try {
-      const encrypted = CryptoJS.AES.encrypt(message, key).toString();
-      setResult(encrypted);
-      setShowResult(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      Alert.alert('Error', 'Encryption failed. Please try again.');
-    } finally {
-      setIsEncryptingText(false);
-    }
-  };
-
-  const decrypt = async () => {
-    if (!message.trim() || !key.trim()) {
-      Alert.alert('Error', 'Please enter both encrypted message and key');
-      return;
-    }
-    setIsDecryptingText(true);
-    try {
-      const decrypted = CryptoJS.AES.decrypt(message, key);
-      const decryptedText = decrypted.toString(CryptoJS.enc.Utf8);
-      
-      if (!decryptedText) {
-        Alert.alert('Error', 'Invalid key or corrupted message');
-        return;
-      }
-      
-      setResult(decryptedText);
-      setShowResult(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (error) {
-      Alert.alert('Error', 'Decryption failed. Please check your key and message.');
-    } finally {
-      setIsDecryptingText(false);
-    }
-  };
-
-  const copyToClipboard = async () => {
-    await Clipboard.setStringAsync(result);
-    Alert.alert('Success', 'Copied to clipboard!');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const clearFields = () => {
-    setMessage('');
-    setKey('');
-    setResult('');
-    setShowResult(false);
-  };
-
-  const switchTab = (tab: 'encrypt' | 'decrypt') => {
+  // Tab/mode switching
+  const switchTab = useCallback((tab: 'encrypt' | 'decrypt') => {
     setActiveTab(tab);
-    clearFields();
-    clearImageFields();
-  };
+    textCrypter.clearFields();
+    imageCrypter.clearImageFields();
+  }, [textCrypter, imageCrypter]);
 
-  // Add function to switch modes:
-  const switchMode = (newMode: 'text' | 'image') => {
+  const switchMode = useCallback((newMode: 'text' | 'image') => {
     setMode(newMode);
-    clearFields();
-    clearImageFields();
-  };
-
-  // Pick image from gallery or camera
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.8, // Reduced from 1.0 to 0.8 for better performance
-      base64: true,
-    });
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setSelectedImage(result.assets[0]);
-    }
-  };
-
-  // Encrypt image to text
-  const encryptImage = async () => {
-    if (!selectedImage || !imageKey.trim()) {
-      Alert.alert('Error', 'Please select an image and enter a key');
-      return;
-    }
-  
-    setIsEncryptingImage(true);
-  
-    try {
-      const base64 = selectedImage.base64 || '';
-      if (!base64) {
-        Alert.alert('Error', 'Failed to get image data.');
-        setIsEncryptingImage(false);
-        return;
-      }
-      
-      // Check if image is too large (more than 5MB)
-      const sizeInMB = (base64.length * 0.75 / (1024 * 1024));
-      if (sizeInMB > 5) {
-        Alert.alert('Error', 'Image is too large. Please select a smaller image or reduce quality.');
-        setIsEncryptingImage(false);
-        return;
-      }
-      
-      // Add timeout for encryption
-      const encryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            const encrypted = CryptoJS.AES.encrypt(base64, imageKey).toString();
-            resolve(encrypted);
-          } catch (error) {
-            reject(error);
-          }
-        }, 10000); // 10 second timeout
-      });
-      
-      const encrypted = await encryptionPromise as string;
-      setEncryptedImageText(encrypted);
-      setShowImageResult(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      Alert.alert('Error', 'Image encryption failed. Try with a smaller image.');
-    } finally {
-      setIsEncryptingImage(false);
-    }
-  };
-
-  // Decrypt text to image
-  const decryptImage = async () => {
-    if (!imageTextInput.trim() || !imageKey.trim()) {
-      Alert.alert('Error', 'Please paste the encrypted text and enter the key');
-      return;
-    }
-    setIsDecryptingImage(true);
-    try {
-      const trimmedText = imageTextInput.trim();
-      // Add timeout for decryption
-      const decryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
-            const base64 = decrypted.toString(CryptoJS.enc.Utf8);
-            if (!base64 || base64.length < 100) {
-              reject(new Error('Invalid key or corrupted text'));
-              return;
-            }
-            // Detect image type
-            let mime = '';
-            if (base64.startsWith('/9j/')) mime = 'image/jpeg';
-            else if (base64.startsWith('iVBORw0KGgo')) mime = 'image/png';
-            else if (base64.startsWith('R0lGODlh')) mime = 'image/gif';
-            else {
-              reject(new Error('Decrypted data is not a valid image'));
-              return;
-            }
-            resolve({ base64, mime });
-          } catch (error) {
-            reject(error);
-          }
-        }, 5000);
-      });
-      const { base64, mime } = await decryptionPromise as { base64: string, mime: string };
-      const uri = `data:${mime};base64,${base64}`;
-      setDecryptedImageUri(uri);
-      setShowImageResult(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      console.error('Decryption error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage === 'Invalid key or corrupted text') {
-        Alert.alert('Error', 'Invalid key or corrupted text. Please check your key and encrypted text.');
-      } else if (errorMessage === 'Decrypted data is not a valid image') {
-        Alert.alert('Error', 'The decrypted data is not a valid image. Please check your encrypted text.');
-      } else {
-        Alert.alert('Error', 'Image decryption failed. Please check your key and encrypted text.');
-      }
-    } finally {
-      setIsDecryptingImage(false);
-    }
-  };
-
-  // Save decrypted image to device
-  const saveDecryptedImage = async () => {
-    if (!decryptedImageUri) {
-      Alert.alert('Error', 'No image to save. Please decrypt an image first.');
-      return;
-    }
-    
-    try {
-      // Request permissions first
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant permission to save images to your gallery.');
-        return;
-      }
-      
-      // Extract base64 and determine file extension
-      const base64 = decryptedImageUri.split(',')[1];
-      if (!base64) {
-        Alert.alert('Error', 'No image data to save.');
-        return;
-      }
-      
-      // Determine file extension based on image type
-      let fileExtension = 'jpg'; // default
-      if (decryptedImageUri.includes('image/png')) {
-        fileExtension = 'png';
-      } else if (decryptedImageUri.includes('image/gif')) {
-        fileExtension = 'gif';
-      }
-      
-      // Create filename with timestamp
-      const timestamp = Date.now();
-      const filename = `decrypted_image_${timestamp}.${fileExtension}`;
-      
-      console.log('Saving image as:', filename);
-      console.log('Image type:', fileExtension);
-      console.log('Base64 length:', base64.length);
-      
-      // Save to temporary file first
-      const tempUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(tempUri, base64, { 
-        encoding: FileSystem.EncodingType.Base64 
-      });
-      
-      // Save to media library
-      const asset = await MediaLibrary.createAssetAsync(tempUri);
-      await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
-      
-      console.log('Image saved successfully to gallery');
-      Alert.alert('Success', `Image saved to gallery as ${filename}`);
-      
-      // Clean up temp file
-      await FileSystem.deleteAsync(tempUri, { idempotent: true });
-      
-    } catch (error) {
-      console.error('Save image error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      if (errorMessage.includes('permission')) {
-        Alert.alert('Error', 'Permission denied. Please check app permissions.');
-      } else if (errorMessage.includes('storage')) {
-        Alert.alert('Error', 'Storage error. Please check available space.');
-      } else {
-        Alert.alert('Error', `Failed to save image: ${errorMessage}`);
-      }
-    }
-  };
-
-  // Copy encrypted image text
-  const copyImageText = async () => {
-    await Clipboard.setStringAsync(encryptedImageText);
-    Alert.alert('Success', 'Encrypted image text copied!');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  // Clear image fields
-  const clearImageFields = () => {
-    setSelectedImage(null);
-    setEncryptedImageText('');
-    setDecryptedImageUri('');
-    setImageKey('');
-    setImageTextInput('');
-    setShowImageResult(false);
-  };
-
-  // Export encrypted image text as .txt file
-  const exportEncryptedImageText = async () => {
-    if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to export.');
-      return;
-    }
-    try {
-      const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
-      const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      let shareUri = fileUri;
-      if (Platform.OS === 'android') {
-        try {
-          shareUri = await FileSystem.getContentUriAsync(fileUri);
-        } catch (err) {
-          console.error('getContentUriAsync failed:', err);
-          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
-          return;
-        }
-      }
-      try {
-        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
-      } catch (err) {
-        console.error('Sharing failed:', err);
-        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
-        return;
-      }
-      // Optionally delete temp file after sharing
-      try {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      } catch (err) {
-        console.warn('Failed to delete temp file:', err);
-      }
-    } catch (error) {
-      console.error('Export .txt error:', error);
-      Alert.alert('Error', 'Failed to export .txt file.');
-    }
-  };
-
-  // Import encrypted image text from .txt file
-  const importEncryptedImageText = async () => {
-    try {
-      const res = await DocumentPicker.getDocumentAsync({ type: 'text/plain' });
-      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0].uri) return;
-      const fileUri = res.assets[0].uri;
-      const content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
-      setImageTextInput(content);
-      Alert.alert('Success', 'Encrypted image text imported!');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to import .txt file.');
-    }
-  };
-
-  // Download encrypted image text as .txt file to device
-  const downloadEncryptedImageText = async () => {
-    if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to download.');
-      return;
-    }
-    try {
-      const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
-      const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      // Save to media library (Downloads folder)
-      const asset = await MediaLibrary.createAssetAsync(fileUri);
-      await MediaLibrary.createAlbumAsync('Download', asset, false);
-      Alert.alert('Success', `File saved to Downloads as ${filename}`);
-      // Optionally delete temp file
-      await FileSystem.deleteAsync(fileUri, { idempotent: true });
-    } catch (error) {
-      console.error('Download .txt error:', error);
-      Alert.alert('Error', 'Failed to download .txt file.');
-    }
-  };
-
-  // Share encrypted image text as .txt file
-  const shareEncryptedImageText = async () => {
-    if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to share.');
-      return;
-    }
-    try {
-      const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
-      const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      let shareUri = fileUri;
-      if (Platform.OS === 'android') {
-        try {
-          shareUri = await FileSystem.getContentUriAsync(fileUri);
-        } catch (err) {
-          console.error('getContentUriAsync failed:', err);
-          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
-          return;
-        }
-      }
-      try {
-        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
-      } catch (err) {
-        console.error('Sharing failed:', err);
-        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
-        return;
-      }
-      // Optionally delete temp file after sharing
-      try {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      } catch (err) {
-        console.warn('Failed to delete temp file:', err);
-      }
-    } catch (error) {
-      console.error('Share .txt error:', error);
-      Alert.alert('Error', 'Failed to share .txt file.');
-    }
-  };
+    textCrypter.clearFields();
+    imageCrypter.clearImageFields();
+  }, [textCrypter, imageCrypter]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -443,74 +103,9 @@ export default function CrypterApp() {
         style={styles.container}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerContent}>
-              <Ionicons name="shield-checkmark" size={32} color="#00d4ff" />
-              <Text style={styles.title}>Fezla Crypter</Text>
-            </View>
-            <Text style={styles.subtitle}>Secure Communication Made Easy</Text>
-          </View>
-
-          {/* Mode Toggle */}
-          <View style={styles.modeContainer}>
-            <TouchableOpacity
-              style={[styles.modeTab, mode === 'text' && styles.activeModeTab]}
-              onPress={() => switchMode('text')}
-            >
-              <Ionicons 
-                name="chatbubble" 
-                size={18} 
-                color={mode === 'text' ? '#1a1a2e' : '#00d4ff'} 
-              />
-              <Text style={[styles.modeText, mode === 'text' && styles.activeModeText]}>
-                Text
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeTab, mode === 'image' && styles.activeModeTab]}
-              onPress={() => switchMode('image')}
-            >
-              <Ionicons 
-                name="image" 
-                size={18} 
-                color={mode === 'image' ? '#1a1a2e' : '#00d4ff'} 
-              />
-              <Text style={[styles.modeText, mode === 'image' && styles.activeModeText]}>
-                Image
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Tab Switcher */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'encrypt' && styles.activeTab]}
-              onPress={() => switchTab('encrypt')}
-            >
-              <Ionicons 
-                name="lock-closed" 
-                size={20} 
-                color={activeTab === 'encrypt' ? '#1a1a2e' : '#00d4ff'} 
-              />
-              <Text style={[styles.tabText, activeTab === 'encrypt' && styles.activeTabText]}>
-                Encrypt
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'decrypt' && styles.activeTab]}
-              onPress={() => switchTab('decrypt')}
-            >
-              <Ionicons 
-                name="lock-open" 
-                size={20} 
-                color={activeTab === 'decrypt' ? '#1a1a2e' : '#00d4ff'} 
-              />
-              <Text style={[styles.tabText, activeTab === 'decrypt' && styles.activeTabText]}>
-                Decrypt
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <Header />
+          <ModeToggle mode={mode} switchMode={switchMode} />
+          <TabSwitcher activeTab={activeTab} switchTab={switchTab} />
 
           {/* Text Mode UI */}
           {mode === 'text' && (
@@ -526,12 +121,12 @@ export default function CrypterApp() {
                     multiline
                     placeholder={activeTab === 'encrypt' ? 'Enter your secret message...' : 'Paste encrypted message here...'}
                     placeholderTextColor="#666"
-                    value={message}
-                    onChangeText={setMessage}
+                    value={textCrypter.message}
+                    onChangeText={textCrypter.setMessage}
                     textAlignVertical="top"
                   />
                   <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
-                    {message.length} chars
+                    {textCrypter.message.length} chars
                   </Text>
                 </View>
 
@@ -541,8 +136,8 @@ export default function CrypterApp() {
                     style={styles.keyInput}
                     placeholder="Enter your secret key..."
                     placeholderTextColor="#666"
-                    value={key}
-                    onChangeText={setKey}
+                    value={textCrypter.key}
+                    onChangeText={textCrypter.setKey}
                     secureTextEntry
                   />
                 </View>
@@ -551,8 +146,8 @@ export default function CrypterApp() {
                 <View style={styles.buttonContainer}>
                   <TouchableOpacity
                     style={styles.actionButton}
-                    onPress={activeTab === 'encrypt' ? encrypt : decrypt}
-                    disabled={isEncryptingText || isDecryptingText}
+                    onPress={activeTab === 'encrypt' ? textCrypter.encrypt : textCrypter.decrypt}
+                    disabled={textCrypter.isEncrypting || textCrypter.isDecrypting}
                   >
                     <Ionicons 
                       name={activeTab === 'encrypt' ? 'shield' : 'shield-checkmark'} 
@@ -560,14 +155,14 @@ export default function CrypterApp() {
                       color="#fff" 
                     />
                     <Text style={styles.buttonText}>
-                      {activeTab === 'encrypt' ? (isEncryptingText ? 'Encrypting...' : 'Encrypt Message') : (isDecryptingText ? 'Decrypting...' : 'Decrypt Message')}
+                      {activeTab === 'encrypt' ? (textCrypter.isEncrypting ? 'Encrypting...' : 'Encrypt Message') : (textCrypter.isDecrypting ? 'Decrypting...' : 'Decrypt Message')}
                     </Text>
-                    {(isEncryptingText || isDecryptingText) && (
+                    {(textCrypter.isEncrypting || textCrypter.isDecrypting) && (
                       <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
                     )}
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.clearButton} onPress={clearFields}>
+                  <TouchableOpacity style={styles.clearButton} onPress={textCrypter.clearFields}>
                     <Ionicons name="refresh" size={20} color="#ff6b6b" />
                     <Text style={styles.clearButtonText}>Clear</Text>
                   </TouchableOpacity>
@@ -575,16 +170,16 @@ export default function CrypterApp() {
               </View>
 
               {/* Result Section */}
-              {showResult && (
+              {textCrypter.showResult && (
                 <View style={styles.resultSection}>
                   <Text style={styles.resultLabel}>
                     {activeTab === 'encrypt' ? 'Encrypted Message' : 'Decrypted Message'}
                   </Text>
                   <View style={styles.resultContainer}>
                     <Text style={styles.resultText} selectable>
-                      {result}
+                      {textCrypter.result}
                     </Text>
-                    <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
+                    <TouchableOpacity style={styles.copyButton} onPress={textCrypter.copyToClipboard}>
                       <Ionicons name="copy" size={20} color="#00d4ff" />
                       <Text style={styles.copyButtonText}>Copy</Text>
                     </TouchableOpacity>
@@ -632,13 +227,13 @@ export default function CrypterApp() {
               {activeTab === 'encrypt' && (
                 <View style={[styles.inputSection, { marginTop: 0 }]}>  
                   <Text style={styles.inputLabel}>Image Encryption</Text>
-                  <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+                  <TouchableOpacity style={styles.actionButton} onPress={imageCrypter.pickImage}>
                     <Ionicons name="image" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>{selectedImage ? 'Change Image' : 'Pick Image'}</Text>
+                    <Text style={styles.buttonText}>{imageCrypter.selectedImage ? 'Change Image' : 'Pick Image'}</Text>
                   </TouchableOpacity>
-                  {selectedImage && selectedImage.uri && (
+                  {imageCrypter.selectedImage && imageCrypter.selectedImage.uri && (
                     <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                      <Image source={{ uri: selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
+                      <Image source={{ uri: imageCrypter.selectedImage.uri }} style={{ width: 120, height: 120, borderRadius: 10 }} />
                     </View>
                   )}
                   <View style={styles.inputGroup}>
@@ -647,47 +242,47 @@ export default function CrypterApp() {
                       style={styles.keyInput}
                       placeholder="Enter key for image..."
                       placeholderTextColor="#666"
-                      value={imageKey}
-                      onChangeText={setImageKey}
+                      value={imageCrypter.imageKey}
+                      onChangeText={imageCrypter.setImageKey}
                       secureTextEntry
                     />
                   </View>
                   <View style={styles.buttonContainer}>
-                    <TouchableOpacity style={styles.actionButton} onPress={encryptImage} disabled={isEncryptingImage}>
+                    <TouchableOpacity style={styles.actionButton} onPress={imageCrypter.encryptImage} disabled={imageCrypter.isEncryptingImage}>
                       <Ionicons name="shield" size={20} color="#fff" />
-                      <Text style={styles.buttonText}>{isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
-                      {isEncryptingImage && (
+                      <Text style={styles.buttonText}>{imageCrypter.isEncryptingImage ? 'Encrypting...' : 'Encrypt Image'}</Text>
+                      {imageCrypter.isEncryptingImage && (
                         <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
                       )}
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                    <TouchableOpacity style={styles.clearButton} onPress={imageCrypter.clearImageFields}>
                       <Ionicons name="refresh" size={20} color="#ff6b6b" />
                       <Text style={styles.clearButtonText}>Clear</Text>
                     </TouchableOpacity>
                   </View>
-                  {showImageResult && !!encryptedImageText && (
+                  {imageCrypter.showImageResult && !!imageCrypter.encryptedImageText && (
                     <View style={styles.resultSection}>
                       <Text style={styles.resultLabel}>Encrypted Image Text</Text>
                       <ScrollView style={{ maxHeight: 120 }}>
-                        <Text style={styles.resultText} selectable>{encryptedImageText}</Text>
+                        <Text style={styles.resultText} selectable>{imageCrypter.encryptedImageText}</Text>
                       </ScrollView>
                       <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
-                        {encryptedImageText.length} chars
+                        {imageCrypter.encryptedImageText.length} chars
                       </Text>
                       {/* Copy button in top-right corner, only if text length <= 20000 */}
-                      {encryptedImageText.length <= 20000 && (
-                        <TouchableOpacity style={styles.copyButton} onPress={copyImageText}>
+                      {imageCrypter.encryptedImageText.length <= 20000 && (
+                        <TouchableOpacity style={styles.copyButton} onPress={imageCrypter.copyImageText}>
                           <Ionicons name="copy" size={20} color="#00d4ff" />
                           <Text style={styles.copyButtonText}>Copy</Text>
                         </TouchableOpacity>
                       )}
                       {/* Row for Share and Download */}
                       <View style={styles.resultButtonRow}>
-                        <TouchableOpacity style={styles.resultActionButton} onPress={shareEncryptedImageText}>
+                        <TouchableOpacity style={styles.resultActionButton} onPress={imageCrypter.shareEncryptedImageText}>
                           <Ionicons name="share-social" size={20} color="#00d4ff" />
                           <Text style={styles.copyButtonText}>Share via...</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.resultActionButton} onPress={downloadEncryptedImageText}>
+                        <TouchableOpacity style={styles.resultActionButton} onPress={imageCrypter.downloadEncryptedImageText}>
                           <Ionicons name="download" size={20} color="#00d4ff" />
                           <Text style={styles.copyButtonText}>Download</Text>
                         </TouchableOpacity>
@@ -708,18 +303,18 @@ export default function CrypterApp() {
                         multiline
                         placeholder="Paste encrypted image text here..."
                         placeholderTextColor="#666"
-                        value={imageTextInput}
-                        onChangeText={setImageTextInput}
+                        value={imageCrypter.imageTextInput}
+                        onChangeText={imageCrypter.setImageTextInput}
                         textAlignVertical="top"
                       />
                       {/* Import .txt button in top-right of textbox */}
-                      <TouchableOpacity style={[styles.copyButton, { top: 10, right: 10 }]} onPress={importEncryptedImageText}>
+                      <TouchableOpacity style={[styles.copyButton, { top: 10, right: 10 }]} onPress={imageCrypter.importEncryptedImageText}>
                         <Ionicons name="document" size={20} color="#00d4ff" />
                         <Text style={styles.copyButtonText}>Import .txt</Text>
                       </TouchableOpacity>
                     </View>
                     <Text style={{ fontSize: 11, color: '#b0b0b0', alignSelf: 'flex-end', marginTop: 4, marginRight: 2 }}>
-                      {imageTextInput.length} chars
+                      {imageCrypter.imageTextInput.length} chars
                     </Text>
                   </View>
                   <View style={styles.inputGroup}>
@@ -728,30 +323,30 @@ export default function CrypterApp() {
                       style={styles.keyInput}
                       placeholder="Enter key for image..."
                       placeholderTextColor="#666"
-                      value={imageKey}
-                      onChangeText={setImageKey}
+                      value={imageCrypter.imageKey}
+                      onChangeText={imageCrypter.setImageKey}
                       secureTextEntry
                     />
                   </View>
                   <View style={styles.buttonContainer}>
-                    <TouchableOpacity style={styles.actionButton} onPress={decryptImage} disabled={isDecryptingImage}>
+                    <TouchableOpacity style={styles.actionButton} onPress={imageCrypter.decryptImage} disabled={imageCrypter.isDecryptingImage}>
                       <Ionicons name="shield-checkmark" size={20} color="#fff" />
-                      <Text style={styles.buttonText}>{isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
-                      {isDecryptingImage && (
+                      <Text style={styles.buttonText}>{imageCrypter.isDecryptingImage ? 'Decrypting...' : 'Decrypt Image'}</Text>
+                      {imageCrypter.isDecryptingImage && (
                         <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 8 }} />
                       )}
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.clearButton} onPress={clearImageFields}>
+                    <TouchableOpacity style={styles.clearButton} onPress={imageCrypter.clearImageFields}>
                       <Ionicons name="refresh" size={20} color="#ff6b6b" />
                       <Text style={styles.clearButtonText}>Clear</Text>
                     </TouchableOpacity>
                   </View>
-                  {showImageResult && !!decryptedImageUri && (
+                  {imageCrypter.showImageResult && !!imageCrypter.decryptedImageUri && (
                     <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                      <Image source={{ uri: decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
+                      <Image source={{ uri: imageCrypter.decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
                       <TouchableOpacity 
                         style={[styles.actionButton, { marginTop: 10, width: '30%', alignSelf: 'center' }]} 
-                        onPress={saveDecryptedImage}
+                        onPress={imageCrypter.saveDecryptedImage}
                       >
                         <Ionicons name="download" size={20} color="#fff" />
                         <Text style={styles.buttonText}>Save Image</Text>
@@ -795,10 +390,7 @@ export default function CrypterApp() {
             </>
           )}
 
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Developed by Mhmd-Aslam</Text>
-          </View>
+          <Footer />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
