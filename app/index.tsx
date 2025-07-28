@@ -276,15 +276,11 @@ export default function CrypterApp() {
                           <Text style={styles.copyButtonText}>Copy</Text>
                         </TouchableOpacity>
                       )}
-                      {/* Row for Share and Download */}
+                      {/* Share Button */}
                       <View style={styles.resultButtonRow}>
                         <TouchableOpacity style={styles.resultActionButton} onPress={imageCrypter.shareEncryptedImageText}>
                           <Ionicons name="share-social" size={20} color="#00d4ff" />
                           <Text style={styles.copyButtonText}>Share via...</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.resultActionButton} onPress={imageCrypter.downloadEncryptedImageText}>
-                          <Ionicons name="download" size={20} color="#00d4ff" />
-                          <Text style={styles.copyButtonText}>Download</Text>
                         </TouchableOpacity>
                       </View>
                     </View>

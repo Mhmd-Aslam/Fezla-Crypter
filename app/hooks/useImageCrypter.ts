@@ -188,19 +188,43 @@ export function useImageCrypter() {
       const timestamp = Date.now();
       const filename = `decrypted_image_${timestamp}.${fileExtension}`;
       const tempUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(tempUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+      
+      // Write the base64 image data to file
+      await FileSystem.writeAsStringAsync(tempUri, base64, { 
+        encoding: FileSystem.EncodingType.Base64 
+      });
+      
+      // Save to media library
       const asset = await MediaLibrary.createAssetAsync(tempUri);
-      await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
+      
+      // Try to create album, but don't fail if it doesn't work
+      try {
+        await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
+      } catch (albumError) {
+        // Album creation failed, but asset is still saved
+        console.log('Album creation failed, but image was saved');
+      }
+      
       Alert.alert('Success', `Image saved to gallery as ${filename}`);
-      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+      
+      // Clean up the temporary file
+      setTimeout(async () => {
+        try {
+          await FileSystem.deleteAsync(tempUri, { idempotent: true });
+        } catch (err) {
+          // Ignore cleanup errors
+        }
+      }, 1000);
+      
     } catch (error) {
+      console.error('Save image error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (errorMessage.includes('permission')) {
         Alert.alert('Error', 'Permission denied. Please check app permissions.');
       } else if (errorMessage.includes('storage')) {
         Alert.alert('Error', 'Storage error. Please check available space.');
       } else {
-        Alert.alert('Error', `Failed to save image: ${errorMessage}`);
+        Alert.alert('Error', 'Failed to save image. Please try again.');
       }
     }
   };
@@ -221,100 +245,83 @@ export function useImageCrypter() {
   };
 
   const exportEncryptedImageText = async () => {
-    if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to export.');
-      return;
-    }
-    try {
-      const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
-      const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      let shareUri = fileUri;
-      if (Platform.OS === 'android') {
-        try {
-          shareUri = await FileSystem.getContentUriAsync(fileUri);
-        } catch (err) {
-          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
-          return;
-        }
-      }
-      try {
-        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
-      } catch (err) {
-        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
-        return;
-      }
-      try {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      } catch (err) {}
-    } catch (error) {
-      Alert.alert('Error', 'Failed to export .txt file.');
-    }
+    // This function is now the same as shareEncryptedImageText
+    return shareEncryptedImageText();
   };
 
   const importEncryptedImageText = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({ type: 'text/plain' });
-      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0].uri) return;
+      const res = await DocumentPicker.getDocumentAsync({ 
+        type: 'text/plain',
+        copyToCacheDirectory: true
+      });
+      
+      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0].uri) {
+        return;
+      }
+      
       const fileUri = res.assets[0].uri;
-      const content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
+      const content = await FileSystem.readAsStringAsync(fileUri, { 
+        encoding: FileSystem.EncodingType.UTF8 
+      });
+      
+      if (!content || content.trim().length === 0) {
+        Alert.alert('Error', 'The selected file is empty or invalid.');
+        return;
+      }
+      
       setImageTextInput(content);
       Alert.alert('Success', 'Encrypted image text imported!');
+      
     } catch (error) {
-      Alert.alert('Error', 'Failed to import .txt file.');
+      console.error('Import error:', error);
+      Alert.alert('Error', 'Failed to import .txt file. Please try again.');
     }
   };
 
-  const downloadEncryptedImageText = async () => {
-    if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to download.');
-      return;
-    }
-    try {
-      const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
-      const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      const asset = await MediaLibrary.createAssetAsync(fileUri);
-      await MediaLibrary.createAlbumAsync('Download', asset, false);
-      Alert.alert('Success', `File saved to Downloads as ${filename}`);
-      await FileSystem.deleteAsync(fileUri, { idempotent: true });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to download .txt file.');
-    }
-  };
+
 
   const shareEncryptedImageText = async () => {
     if (!encryptedImageText) {
-      Alert.alert('Error', 'No encrypted image text to share.');
+      Alert.alert('Error', 'No data to share.');
       return;
     }
     try {
       const timestamp = Date.now();
-      const filename = `encrypted_image_${timestamp}.txt`;
+      const filename = `data_${timestamp}.txt`;
       const fileUri = FileSystem.documentDirectory + filename;
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { encoding: FileSystem.EncodingType.UTF8 });
-      let shareUri = fileUri;
-      if (Platform.OS === 'android') {
-        try {
-          shareUri = await FileSystem.getContentUriAsync(fileUri);
-        } catch (err) {
-          Alert.alert('Error', 'Failed to get content URI for sharing on Android.');
-          return;
-        }
-      }
-      try {
-        await Sharing.shareAsync(shareUri, { mimeType: 'text/plain', dialogTitle: 'Share Encrypted Image Text' });
-      } catch (err) {
-        Alert.alert('Error', 'Sharing failed. Make sure you have a sharing app installed.');
+      
+      // Write the encrypted text to file
+      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { 
+        encoding: FileSystem.EncodingType.UTF8 
+      });
+
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Error', 'Sharing is not available on this device.');
         return;
       }
-      try {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      } catch (err) {}
+
+      // Share the file
+      await Sharing.shareAsync(fileUri, { 
+        mimeType: 'text/plain', 
+        dialogTitle: 'Share Data',
+        UTI: 'public.plain-text' // For iOS
+      });
+
+      // Clean up the temporary file
+      setTimeout(async () => {
+        try {
+          await FileSystem.deleteAsync(fileUri, { idempotent: true });
+        } catch (err) {
+          // Ignore cleanup errors
+        }
+      }, 1000);
+
     } catch (error) {
-      Alert.alert('Error', 'Failed to share .txt file.');
+      console.error('Share error:', error);
+      Alert.alert('Error', 'Failed to share data. Please try again.');
     }
   };
 
@@ -341,7 +348,6 @@ export function useImageCrypter() {
     clearImageFields,
     exportEncryptedImageText,
     importEncryptedImageText,
-    downloadEncryptedImageText,
     shareEncryptedImageText,
   };
 } 
