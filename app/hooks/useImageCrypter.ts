@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Platform, ActionSheetIOS } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import CryptoJS from 'react-native-crypto-js';
+import { encryptBase64, decryptToBase64 } from '../utils/nativeCrypto';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
@@ -92,18 +92,14 @@ export function useImageCrypter() {
         setIsEncryptingImage(false);
         return;
       }
-      const encryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            const encrypted = CryptoJS.AES.encrypt(base64, imageKey).toString();
-            resolve(encrypted);
-          } catch (error) {
-            reject(error);
-          }
-        }, 10000);
-      });
-      const encrypted = await encryptionPromise as string;
-      setEncryptedImageText(encrypted);
+      
+      const encrypted = await encryptBase64(base64, imageKey);
+      // Store both encrypted data and IV
+      const resultData = {
+        data: Array.from(encrypted.data), // Convert Uint8Array to array for JSON
+        iv: Array.from(encrypted.iv)
+      };
+      setEncryptedImageText(JSON.stringify(resultData));
       setShowImageResult(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -121,30 +117,40 @@ export function useImageCrypter() {
     setIsDecryptingImage(true);
     try {
       const trimmedText = imageTextInput.trim();
-      const decryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
-            const base64 = decrypted.toString(CryptoJS.enc.Utf8);
-            if (!base64 || base64.length < 100) {
-              reject(new Error('Invalid key or corrupted text'));
-              return;
-            }
-            let mime = '';
-            if (base64.startsWith('/9j/')) mime = 'image/jpeg';
-            else if (base64.startsWith('iVBORw0KGgo')) mime = 'image/png';
-            else if (base64.startsWith('R0lGODlh')) mime = 'image/gif';
-            else {
-              reject(new Error('Decrypted data is not a valid image'));
-              return;
-            }
-            resolve({ base64, mime });
-          } catch (error) {
-            reject(error);
-          }
-        }, 5000);
-      });
-      const { base64, mime } = await decryptionPromise as { base64: string, mime: string };
+      
+      // Parse the encrypted data (should be JSON with data and iv)
+      let encryptedData;
+      try {
+        encryptedData = JSON.parse(trimmedText);
+      } catch (parseError) {
+        Alert.alert('Error', 'Invalid encrypted text format');
+        return;
+      }
+
+      if (!encryptedData.data || !encryptedData.iv) {
+        Alert.alert('Error', 'Invalid encrypted text format');
+        return;
+      }
+
+      // Convert arrays back to Uint8Array
+      const dataBytes = new Uint8Array(encryptedData.data);
+      const ivBytes = new Uint8Array(encryptedData.iv);
+
+      const base64 = await decryptToBase64(dataBytes, imageKey, ivBytes);
+      if (!base64 || base64.length < 100) {
+        Alert.alert('Error', 'Invalid key or corrupted text');
+        return;
+      }
+      
+      let mime = '';
+      if (base64.startsWith('/9j/')) mime = 'image/jpeg';
+      else if (base64.startsWith('iVBORw0KGgo')) mime = 'image/png';
+      else if (base64.startsWith('R0lGODlh')) mime = 'image/gif';
+      else {
+        Alert.alert('Error', 'Decrypted data is not a valid image');
+        return;
+      }
+      
       const uri = `data:${mime};base64,${base64}`;
       setDecryptedImageUri(uri);
       setShowImageResult(true);
@@ -256,11 +262,11 @@ export function useImageCrypter() {
         copyToCacheDirectory: true
       });
       
-      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0].uri) {
+      if (res.canceled || !res.assets || !Array.isArray(res.assets) || res.assets.length === 0 || !res.assets[0]?.uri) {
         return;
       }
       
-      const fileUri = res.assets[0].uri;
+      const fileUri = res.assets[0]!.uri;
       const content = await FileSystem.readAsStringAsync(fileUri, { 
         encoding: FileSystem.EncodingType.UTF8 
       });
