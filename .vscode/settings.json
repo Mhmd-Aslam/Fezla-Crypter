@@ -11,5 +11,6 @@
   "emmet.includeLanguages": {
     "typescript": "html",
     "typescriptreact": "html"
-  }
+  },
+  "java.configuration.updateBuildConfiguration": "interactive"
 }
