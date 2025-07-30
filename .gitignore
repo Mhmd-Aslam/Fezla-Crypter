@@ -44,7 +44,3 @@ expo-modules-autolinking/
 
 expo-env.d.ts
 # @end expo-cli
-
-
-builds/
-#apk
