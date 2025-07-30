@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Platform, ActionSheetIOS } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { encryptBase64, decryptToBase64 } from '../utils/nativeCrypto';
+import CryptoJS from 'react-native-crypto-js';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
@@ -28,7 +28,7 @@ export function useImageCrypter() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
-        base64: true,
+        base64: false, // Don't get base64, we'll get bytes
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setSelectedImage(result.assets[0]);
@@ -39,7 +39,7 @@ export function useImageCrypter() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
-        base64: true,
+        base64: false, // Don't get base64, we'll get bytes
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setSelectedImage(result.assets[0]);
@@ -80,26 +80,39 @@ export function useImageCrypter() {
     }
     setIsEncryptingImage(true);
     try {
-      const base64 = selectedImage.base64 || '';
-      if (!base64) {
-        Alert.alert('Error', 'Failed to get image data.');
+      // Read image as bytes instead of base64
+      const imageBytes = await FileSystem.readAsStringAsync(selectedImage.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      if (!imageBytes) {
+        Alert.alert('Error', 'Failed to read image data.');
         setIsEncryptingImage(false);
         return;
       }
-      const sizeInMB = (base64.length * 0.75 / (1024 * 1024));
-      if (sizeInMB > 5) {
+
+      // Check file size (base64 is ~33% larger than original)
+      const sizeInMB = (imageBytes.length * 0.75 / (1024 * 1024));
+      if (sizeInMB > 10) {
         Alert.alert('Error', 'Image is too large. Please select a smaller image or reduce quality.');
         setIsEncryptingImage(false);
         return;
       }
+
+      // Encrypt the bytes directly
+      const encryptionPromise = new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            const encrypted = CryptoJS.AES.encrypt(imageBytes, imageKey).toString();
+            resolve(encrypted);
+          } catch (error) {
+            reject(error);
+          }
+        }, 1000); // Reduced timeout since we're working with bytes
+      });
       
-      const encrypted = await encryptBase64(base64, imageKey);
-      // Store both encrypted data and IV
-      const resultData = {
-        data: Array.from(encrypted.data), // Convert Uint8Array to array for JSON
-        iv: Array.from(encrypted.iv)
-      };
-      setEncryptedImageText(JSON.stringify(resultData));
+      const encrypted = await encryptionPromise as string;
+      setEncryptedImageText(encrypted);
       setShowImageResult(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -117,41 +130,36 @@ export function useImageCrypter() {
     setIsDecryptingImage(true);
     try {
       const trimmedText = imageTextInput.trim();
-      
-      // Parse the encrypted data (should be JSON with data and iv)
-      let encryptedData;
-      try {
-        encryptedData = JSON.parse(trimmedText);
-      } catch (parseError) {
-        Alert.alert('Error', 'Invalid encrypted text format');
-        return;
-      }
+      const decryptionPromise = new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
+            const imageBytes = decrypted.toString(CryptoJS.enc.Utf8);
+            
+            if (!imageBytes || imageBytes.length < 100) {
+              reject(new Error('Invalid key or corrupted text'));
+              return;
+            }
 
-      if (!encryptedData.data || !encryptedData.iv) {
-        Alert.alert('Error', 'Invalid encrypted text format');
-        return;
-      }
-
-      // Convert arrays back to Uint8Array
-      const dataBytes = new Uint8Array(encryptedData.data);
-      const ivBytes = new Uint8Array(encryptedData.iv);
-
-      const base64 = await decryptToBase64(dataBytes, imageKey, ivBytes);
-      if (!base64 || base64.length < 100) {
-        Alert.alert('Error', 'Invalid key or corrupted text');
-        return;
-      }
+            // Validate that it's a valid image format
+            let mime = '';
+            if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
+            else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
+            else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
+            else {
+              reject(new Error('Decrypted data is not a valid image'));
+              return;
+            }
+            
+            resolve({ imageBytes, mime });
+          } catch (error) {
+            reject(error);
+          }
+        }, 2000); // Reduced timeout for bytes
+      });
       
-      let mime = '';
-      if (base64.startsWith('/9j/')) mime = 'image/jpeg';
-      else if (base64.startsWith('iVBORw0KGgo')) mime = 'image/png';
-      else if (base64.startsWith('R0lGODlh')) mime = 'image/gif';
-      else {
-        Alert.alert('Error', 'Decrypted data is not a valid image');
-        return;
-      }
-      
-      const uri = `data:${mime};base64,${base64}`;
+      const { imageBytes, mime } = await decryptionPromise as { imageBytes: string, mime: string };
+      const uri = `data:${mime};base64,${imageBytes}`;
       setDecryptedImageUri(uri);
       setShowImageResult(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -205,7 +213,7 @@ export function useImageCrypter() {
       
       // Try to create album, but don't fail if it doesn't work
       try {
-        await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
+      await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
       } catch (albumError) {
         // Album creation failed, but asset is still saved
         console.log('Album creation failed, but image was saved');
@@ -216,7 +224,7 @@ export function useImageCrypter() {
       // Clean up the temporary file
       setTimeout(async () => {
         try {
-          await FileSystem.deleteAsync(tempUri, { idempotent: true });
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
         } catch (err) {
           // Ignore cleanup errors
         }
