@@ -10,6 +10,8 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 // @ts-ignore
 import * as DocumentPicker from 'expo-document-picker';
+import { Thread } from 'react-native-threads';
+import crypto from 'react-native-quick-crypto';
 
 // Cache for encrypted results to avoid re-encryption
 const encryptionCache = new Map<string, string>();
@@ -560,6 +562,46 @@ export function useImageCrypter() {
       Alert.alert('Error', 'Failed to share data. Please try again.');
     }
   };
+
+  // Helper to run crypto in a worker thread
+  async function runCryptoWorker({ data, key, iv, mode }: { data: string, key: string, iv: string, mode: 'encrypt' | 'decrypt' }): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const worker = new Thread('./cryptoWorker.js');
+      worker.onmessage = (msg: { result: string | null, error: string | null }) => {
+        const { result, error } = msg;
+        if (error) {
+          reject(new Error(error));
+        } else {
+          resolve(result!);
+        }
+        worker.terminate();
+      };
+      worker.postMessage({ data, key, iv, mode });
+    });
+  }
+
+  // Example: Encrypt image as base64 string
+  async function encryptImageBase64(imageBase64: string, keyB64: string, ivB64: string): Promise<string> {
+    return await runCryptoWorker({ data: imageBase64, key: keyB64, iv: ivB64, mode: 'encrypt' });
+  }
+
+  // Example: Decrypt image as base64 string
+  async function decryptImageBase64(encryptedBase64: string, keyB64: string, ivB64: string): Promise<string> {
+    return await runCryptoWorker({ data: encryptedBase64, key: keyB64, iv: ivB64, mode: 'decrypt' });
+  }
+
+  // Usage in your hook/component:
+  //
+  // const key = crypto.randomBytes(32); // 256-bit key
+  // const iv = crypto.randomBytes(16);  // 128-bit IV
+  // const keyB64 = key.toString('base64');
+  // const ivB64 = iv.toString('base64');
+  // const imageBase64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
+  // const encrypted = await encryptImageBase64(imageBase64, keyB64, ivB64);
+  // const decrypted = await decryptImageBase64(encrypted, keyB64, ivB64);
+  //
+  // To display:
+  // <Image source={{ uri: `data:image/jpeg;base64,${decrypted}` }} ... />
 
   return {
     selectedImage,
