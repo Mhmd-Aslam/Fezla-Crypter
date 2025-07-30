@@ -1,0 +1,65 @@
+diff --git a/node_modules/react-native-quick-crypto/android/build.gradle b/node_modules/react-native-quick-crypto/android/build.gradle
+index 30c51c3..ab66319 100644
+--- a/node_modules/react-native-quick-crypto/android/build.gradle
++++ b/node_modules/react-native-quick-crypto/android/build.gradle
+@@ -1,22 +1,9 @@
+ import java.nio.file.Paths
+-import com.android.Version
+ 
+ def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+ def agpVersionMajor = agpVersion.tokenize('.')[0].toInteger()
+ def agpVersionMinor = agpVersion.tokenize('.')[1].toInteger()
+ 
+-buildscript {
+-  repositories {
+-    google()
+-    mavenCentral()
+-  }
+-
+-  dependencies {
+-    classpath("com.android.tools.build:gradle:8.7.3")
+-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}"
+-  }
+-}
+-
+ def isNewArchitectureEnabled() {
+   // To opt-in for the New Architecture, you can either:
+   // - Set `newArchEnabled` to true inside the `gradle.properties` file
+@@ -26,7 +13,7 @@ def isNewArchitectureEnabled() {
+ }
+ 
+ def resolveBuildType() {
+-    Gradle gradle = getGradle()
++    def gradle = getGradle()
+     String tskReqStr = gradle.getStartParameter().getTaskRequests()['args'].toString()
+ 
+     return tskReqStr.contains('Release') ? 'release' : 'debug'
+@@ -60,7 +47,7 @@ static def findNodeModules(baseDir) {
+     }
+     basePath = basePath.getParent()
+   }
+-  throw new GradleException("react-native-quick-crypto: Failed to find node_modules/ path!")
++  throw new Exception("react-native-quick-crypto: Failed to find node_modules/ path!")
+ }
+ 
+ def nodeModules = findNodeModules(projectDir)
+@@ -71,7 +58,7 @@ repositories {
+ }
+ 
+ android {
+-  compileSdkVersion safeExtGet("compileSdkVersion", 31)
++  compileSdkVersion safeExtGet("compileSdkVersion", 35)
+ 
+   if ((agpVersionMajor == 7 && agpVersionMinor >= 3) || agpVersionMajor >= 8) {
+     // Namespace support was added in 7.3.0
+@@ -104,8 +91,8 @@ android {
+   }
+ 
+   defaultConfig {
+-    minSdkVersion safeExtGet('minSdkVersion', 23)
+-    targetSdkVersion safeExtGet('targetSdkVersion', 31)
++    minSdkVersion safeExtGet('minSdkVersion', 24)
++    targetSdkVersion safeExtGet('targetSdkVersion', 35)
+     versionCode 1
+     versionName "1.0"
+     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()

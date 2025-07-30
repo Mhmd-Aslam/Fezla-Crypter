@@ -10,7 +10,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 // @ts-ignore
 import * as DocumentPicker from 'expo-document-picker';
-import { Thread } from 'react-native-threads';
+
 import crypto from 'react-native-quick-crypto';
 
 // Cache for encrypted results to avoid re-encryption
@@ -563,45 +563,34 @@ export function useImageCrypter() {
     }
   };
 
-  // Helper to run crypto in a worker thread
-  async function runCryptoWorker({ data, key, iv, mode }: { data: string, key: string, iv: string, mode: 'encrypt' | 'decrypt' }): Promise<string> {
+  // Helper to run crypto operations (simplified without threading)
+  async function runCryptoOperation({ data, key, iv, mode }: { data: string, key: string, iv: string, mode: 'encrypt' | 'decrypt' }): Promise<string> {
     return new Promise((resolve, reject) => {
-      const worker = new Thread('./cryptoWorker.js');
-      worker.onmessage = (msg: { result: string | null, error: string | null }) => {
-        const { result, error } = msg;
-        if (error) {
-          reject(new Error(error));
+      try {
+        if (mode === 'encrypt') {
+          const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
+          const result = cipher.update(data, 'base64', 'base64') + cipher.final('base64');
+          resolve(result);
         } else {
-          resolve(result!);
+          const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
+          const result = decipher.update(data, 'base64', 'base64') + decipher.final('base64');
+          resolve(result);
         }
-        worker.terminate();
-      };
-      worker.postMessage({ data, key, iv, mode });
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
   // Example: Encrypt image as base64 string
   async function encryptImageBase64(imageBase64: string, keyB64: string, ivB64: string): Promise<string> {
-    return await runCryptoWorker({ data: imageBase64, key: keyB64, iv: ivB64, mode: 'encrypt' });
+    return await runCryptoOperation({ data: imageBase64, key: keyB64, iv: ivB64, mode: 'encrypt' });
   }
 
   // Example: Decrypt image as base64 string
   async function decryptImageBase64(encryptedBase64: string, keyB64: string, ivB64: string): Promise<string> {
-    return await runCryptoWorker({ data: encryptedBase64, key: keyB64, iv: ivB64, mode: 'decrypt' });
+    return await runCryptoOperation({ data: encryptedBase64, key: keyB64, iv: ivB64, mode: 'decrypt' });
   }
-
-  // Usage in your hook/component:
-  //
-  // const key = crypto.randomBytes(32); // 256-bit key
-  // const iv = crypto.randomBytes(16);  // 128-bit IV
-  // const keyB64 = key.toString('base64');
-  // const ivB64 = iv.toString('base64');
-  // const imageBase64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
-  // const encrypted = await encryptImageBase64(imageBase64, keyB64, ivB64);
-  // const decrypted = await decryptImageBase64(encrypted, keyB64, ivB64);
-  //
-  // To display:
-  // <Image source={{ uri: `data:image/jpeg;base64,${decrypted}` }} ... />
 
   return {
     selectedImage,
