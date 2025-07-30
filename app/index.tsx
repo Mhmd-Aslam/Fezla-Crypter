@@ -260,6 +260,12 @@ export default function CrypterApp() {
                       <Text style={styles.clearButtonText}>Clear</Text>
                     </TouchableOpacity>
                   </View>
+                  {imageCrypter.isEncryptingImage && (
+                    <View style={styles.progressContainer}>
+                      <Text style={styles.progressText}>Processing...</Text>
+                      <Text style={styles.progressSubtext}>Please wait, this may take a few seconds</Text>
+                    </View>
+                  )}
                   {imageCrypter.showImageResult && !!imageCrypter.encryptedImageText && (
                     <View style={styles.resultSection}>
                       <Text style={styles.resultLabel}>Encrypted Image Text</Text>
@@ -648,5 +654,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#00d4ff',
     marginLeft: 0,
+  },
+  progressContainer: {
+    marginTop: 15,
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#2a2a3e',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#00d4ff',
+  },
+  progressText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  progressSubtext: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 4,
   },
 });

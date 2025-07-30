@@ -13,11 +13,15 @@ import * as DocumentPicker from 'expo-document-picker';
 
 // Cache for encrypted results to avoid re-encryption
 const encryptionCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 10; // Keep last 10 encrypted results
+const MAX_CACHE_SIZE = 5; // Reduced cache size
 
 // Image processing cache
 const imageCache = new Map<string, { bytes: string; timestamp: number }>();
-const MAX_IMAGE_CACHE_SIZE = 5; // Keep last 5 processed images
+const MAX_IMAGE_CACHE_SIZE = 3; // Reduced image cache size
+
+// Memory monitoring
+let memoryWarningCount = 0;
+const MAX_MEMORY_WARNINGS = 3;
 
 export function useImageCrypter() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
@@ -151,38 +155,72 @@ export function useImageCrypter() {
       let imageBytes = getFromImageCache(imageUri);
       
       if (!imageBytes) {
-        // Read image as bytes with progress tracking
-        imageBytes = await FileSystem.readAsStringAsync(imageUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        
-        if (!imageBytes) {
-          Alert.alert('Error', 'Failed to read image data.');
+        // Read image as bytes with better error handling
+        try {
+          imageBytes = await FileSystem.readAsStringAsync(imageUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          if (!imageBytes) {
+            Alert.alert('Error', 'Failed to read image data.');
+            return;
+          }
+
+          // Cache the image bytes for future use
+          addToImageCache(imageUri, imageBytes);
+        } catch (readError) {
+          console.error('File read error:', readError);
+          Alert.alert('Error', 'Failed to read image file. Please try again.');
           return;
         }
-
-        // Cache the image bytes for future use
-        addToImageCache(imageUri, imageBytes);
       }
 
-      // Check file size (base64 is ~33% larger than original)
+      // Very conservative file size limit
       const sizeInMB = (imageBytes.length * 0.75 / (1024 * 1024));
-      if (sizeInMB > 10) {
-        Alert.alert('Error', 'Image is too large. Please select a smaller image or reduce quality.');
+      if (sizeInMB > 2) { // Reduced to 2MB for maximum stability
+        Alert.alert('Error', 'Image is too large. Please select a smaller image (under 2MB).');
         return;
       }
 
-      // Optimized encryption with chunking for large files
+      // Use very small chunks for maximum stability
       const encrypted = await new Promise<string>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Encryption timeout'));
-        }, 5000); // 5 second timeout
+          reject(new Error('Encryption timeout - image too large'));
+        }, 15000); // 15 second timeout
 
         try {
-          // Use requestIdleCallback for better performance (if available)
-          const encryptTask = () => {
+          // Always use chunking for stability
+          const chunkSize = 100000; // 100KB chunks (much smaller)
+          const chunks: string[] = [];
+          
+          for (let i = 0; i < imageBytes.length; i += chunkSize) {
+            chunks.push(imageBytes.slice(i, i + chunkSize));
+          }
+
+          // Encrypt chunks with longer delays to prevent UI blocking
+          const encryptChunks = async () => {
             try {
-              const result = CryptoJS.AES.encrypt(imageBytes, imageKey).toString();
+              const encryptedChunks: string[] = [];
+              
+              for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                
+                // Clear memory periodically
+                if (i % 3 === 0) {
+                  checkMemoryUsage();
+                }
+                
+                const encryptedChunk = CryptoJS.AES.encrypt(chunk, imageKey).toString();
+                encryptedChunks.push(encryptedChunk);
+                
+                // Longer delay between chunks to prevent UI blocking
+                if (i < chunks.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
+                }
+              }
+              
+              // Combine chunks with separator
+              const result = encryptedChunks.join('|CHUNK|');
               clearTimeout(timeout);
               resolve(result);
             } catch (error) {
@@ -191,12 +229,8 @@ export function useImageCrypter() {
             }
           };
 
-          // Execute immediately for smaller files, or with delay for larger ones
-          if (sizeInMB < 2) {
-            encryptTask();
-          } else {
-            setTimeout(encryptTask, 100); // Small delay to prevent UI blocking
-          }
+          // Execute with delay to prevent UI blocking
+          setTimeout(encryptChunks, 200);
         } catch (error) {
           clearTimeout(timeout);
           reject(error);
@@ -213,10 +247,23 @@ export function useImageCrypter() {
       
     } catch (error) {
       console.error('Encryption error:', error);
-      Alert.alert('Error', 'Image encryption failed. Try with a smaller image.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (errorMessage.includes('timeout')) {
+        Alert.alert('Error', 'Image is too large or complex. Please try with a smaller image.');
+      } else if (errorMessage.includes('memory')) {
+        Alert.alert('Error', 'Not enough memory to process this image. Please try with a smaller image.');
+      } else {
+        Alert.alert('Error', 'Image encryption failed. Please try with a smaller image.');
+      }
     } finally {
       setIsEncryptingImage(false);
       processingRef.current = false;
+      
+      // Force garbage collection if possible
+      if (global.gc) {
+        global.gc();
+      }
     }
   };
 
@@ -228,11 +275,36 @@ export function useImageCrypter() {
     setIsDecryptingImage(true);
     try {
       const trimmedText = imageTextInput.trim();
+      
+      // Check if it's chunked data
+      const isChunked = trimmedText.includes('|CHUNK|');
+      
       const decryptionPromise = new Promise((resolve, reject) => {
         setTimeout(() => {
           try {
-            const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
-            const imageBytes = decrypted.toString(CryptoJS.enc.Utf8);
+            let imageBytes: string;
+            
+            if (isChunked) {
+              // Handle chunked decryption
+              const chunks = trimmedText.split('|CHUNK|');
+              const decryptedChunks: string[] = [];
+              
+              for (const chunk of chunks) {
+                const decrypted = CryptoJS.AES.decrypt(chunk, imageKey);
+                const decryptedChunk = decrypted.toString(CryptoJS.enc.Utf8);
+                if (!decryptedChunk) {
+                  reject(new Error('Invalid key or corrupted chunked data'));
+                  return;
+                }
+                decryptedChunks.push(decryptedChunk);
+              }
+              
+              imageBytes = decryptedChunks.join('');
+            } else {
+              // Handle regular decryption
+              const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
+              imageBytes = decrypted.toString(CryptoJS.enc.Utf8);
+            }
             
             if (!imageBytes || imageBytes.length < 100) {
               reject(new Error('Invalid key or corrupted text'));
@@ -253,7 +325,7 @@ export function useImageCrypter() {
           } catch (error) {
             reject(error);
           }
-        }, 2000); // Reduced timeout for bytes
+        }, 3000); // Increased timeout for chunked decryption
       });
       
       const { imageBytes, mime } = await decryptionPromise as { imageBytes: string, mime: string };
@@ -267,6 +339,8 @@ export function useImageCrypter() {
         Alert.alert('Error', 'Invalid key or corrupted text. Please check your key and encrypted text.');
       } else if (errorMessage === 'Decrypted data is not a valid image') {
         Alert.alert('Error', 'The decrypted data is not a valid image. Please check your encrypted text.');
+      } else if (errorMessage.includes('chunked')) {
+        Alert.alert('Error', 'Invalid key or corrupted chunked data. Please check your key and encrypted text.');
       } else {
         Alert.alert('Error', 'Image decryption failed. Please check your key and encrypted text.');
       }
@@ -365,6 +439,46 @@ export function useImageCrypter() {
     encryptionCache.clear();
     imageCache.clear();
   }, []);
+
+  // Memory management - clear old entries
+  const cleanupMemory = useCallback(() => {
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    // Clear old image cache entries
+    for (const [key, value] of imageCache.entries()) {
+      if (now - value.timestamp > fiveMinutes) {
+        imageCache.delete(key);
+      }
+    }
+    
+    // Keep only last 3 encryption results (reduced)
+    if (encryptionCache.size > 3) {
+      const entries = Array.from(encryptionCache.entries());
+      const toDelete = entries.slice(0, entries.length - 3);
+      toDelete.forEach(([key]) => encryptionCache.delete(key));
+    }
+  }, []);
+
+  // Memory monitoring function
+  const checkMemoryUsage = useCallback(() => {
+    try {
+      // Simple memory check - if we're processing large data, clear caches
+      if (imageCache.size > 2 || encryptionCache.size > 3) {
+        cleanupMemory();
+        memoryWarningCount++;
+        
+        if (memoryWarningCount > MAX_MEMORY_WARNINGS) {
+          // Force clear all caches if too many warnings
+          imageCache.clear();
+          encryptionCache.clear();
+          memoryWarningCount = 0;
+        }
+      }
+    } catch (error) {
+      console.error('Memory check error:', error);
+    }
+  }, [cleanupMemory]);
 
   const exportEncryptedImageText = async () => {
     // This function is now the same as shareEncryptedImageText
@@ -469,6 +583,8 @@ export function useImageCrypter() {
     copyImageText,
     clearImageFields,
     clearCaches,
+    cleanupMemory,
+    checkMemoryUsage,
     exportEncryptedImageText,
     importEncryptedImageText,
     shareEncryptedImageText,
