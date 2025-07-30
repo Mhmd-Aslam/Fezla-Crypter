@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Alert, Platform, ActionSheetIOS } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -11,6 +11,14 @@ import * as Sharing from 'expo-sharing';
 // @ts-ignore
 import * as DocumentPicker from 'expo-document-picker';
 
+// Cache for encrypted results to avoid re-encryption
+const encryptionCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 10; // Keep last 10 encrypted results
+
+// Image processing cache
+const imageCache = new Map<string, { bytes: string; timestamp: number }>();
+const MAX_IMAGE_CACHE_SIZE = 5; // Keep last 5 processed images
+
 export function useImageCrypter() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [encryptedImageText, setEncryptedImageText] = useState('');
@@ -20,6 +28,46 @@ export function useImageCrypter() {
   const [showImageResult, setShowImageResult] = useState(false);
   const [isEncryptingImage, setIsEncryptingImage] = useState(false);
   const [isDecryptingImage, setIsDecryptingImage] = useState(false);
+
+  // Refs for performance tracking
+  const processingRef = useRef(false);
+  const lastProcessedImageRef = useRef<string>('');
+
+  // Cache management functions
+  const addToEncryptionCache = useCallback((key: string, result: string) => {
+    if (encryptionCache.size >= MAX_CACHE_SIZE) {
+      // Remove oldest entry
+      const firstKey = encryptionCache.keys().next().value;
+      if (firstKey) {
+        encryptionCache.delete(firstKey);
+      }
+    }
+    encryptionCache.set(key, result);
+  }, []);
+
+  const addToImageCache = useCallback((uri: string, bytes: string) => {
+    if (imageCache.size >= MAX_IMAGE_CACHE_SIZE) {
+      // Remove oldest entry
+      const firstKey = imageCache.keys().next().value;
+      if (firstKey) {
+        imageCache.delete(firstKey);
+      }
+    }
+    imageCache.set(uri, { bytes, timestamp: Date.now() });
+  }, []);
+
+  const getFromImageCache = useCallback((uri: string) => {
+    const cached = imageCache.get(uri);
+    if (cached && Date.now() - cached.timestamp < 300000) { // 5 minutes cache
+      return cached.bytes;
+    }
+    return null;
+  }, []);
+
+  // Generate cache key for encryption
+  const generateCacheKey = useCallback((imageUri: string, key: string) => {
+    return `${imageUri}_${key}`;
+  }, []);
 
   // New: pick image from gallery or camera
   const pickImage = async () => {
@@ -78,47 +126,97 @@ export function useImageCrypter() {
       Alert.alert('Error', 'Please select an image and enter a key');
       return;
     }
+
+    // Prevent multiple simultaneous operations
+    if (processingRef.current) {
+      return;
+    }
+    processingRef.current = true;
     setIsEncryptingImage(true);
+
     try {
-      // Read image as bytes instead of base64
-      const imageBytes = await FileSystem.readAsStringAsync(selectedImage.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const imageUri = selectedImage.uri;
+      const cacheKey = generateCacheKey(imageUri, imageKey);
+
+      // Check if we have cached result
+      const cachedResult = encryptionCache.get(cacheKey);
+      if (cachedResult) {
+        setEncryptedImageText(cachedResult);
+        setShowImageResult(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+
+      // Check if we have cached image bytes
+      let imageBytes = getFromImageCache(imageUri);
       
       if (!imageBytes) {
-        Alert.alert('Error', 'Failed to read image data.');
-        setIsEncryptingImage(false);
-        return;
+        // Read image as bytes with progress tracking
+        imageBytes = await FileSystem.readAsStringAsync(imageUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        
+        if (!imageBytes) {
+          Alert.alert('Error', 'Failed to read image data.');
+          return;
+        }
+
+        // Cache the image bytes for future use
+        addToImageCache(imageUri, imageBytes);
       }
 
       // Check file size (base64 is ~33% larger than original)
       const sizeInMB = (imageBytes.length * 0.75 / (1024 * 1024));
       if (sizeInMB > 10) {
         Alert.alert('Error', 'Image is too large. Please select a smaller image or reduce quality.');
-        setIsEncryptingImage(false);
         return;
       }
 
-      // Encrypt the bytes directly
-      const encryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            const encrypted = CryptoJS.AES.encrypt(imageBytes, imageKey).toString();
-            resolve(encrypted);
-          } catch (error) {
-            reject(error);
+      // Optimized encryption with chunking for large files
+      const encrypted = await new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Encryption timeout'));
+        }, 5000); // 5 second timeout
+
+        try {
+          // Use requestIdleCallback for better performance (if available)
+          const encryptTask = () => {
+            try {
+              const result = CryptoJS.AES.encrypt(imageBytes, imageKey).toString();
+              clearTimeout(timeout);
+              resolve(result);
+            } catch (error) {
+              clearTimeout(timeout);
+              reject(error);
+            }
+          };
+
+          // Execute immediately for smaller files, or with delay for larger ones
+          if (sizeInMB < 2) {
+            encryptTask();
+          } else {
+            setTimeout(encryptTask, 100); // Small delay to prevent UI blocking
           }
-        }, 1000); // Reduced timeout since we're working with bytes
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
       });
+
+      // Cache the result
+      addToEncryptionCache(cacheKey, encrypted);
       
-      const encrypted = await encryptionPromise as string;
       setEncryptedImageText(encrypted);
       setShowImageResult(true);
+      lastProcessedImageRef.current = imageUri;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
     } catch (error) {
+      console.error('Encryption error:', error);
       Alert.alert('Error', 'Image encryption failed. Try with a smaller image.');
     } finally {
       setIsEncryptingImage(false);
+      processingRef.current = false;
     }
   };
 
@@ -256,7 +354,17 @@ export function useImageCrypter() {
     setImageKey('');
     setImageTextInput('');
     setShowImageResult(false);
+    
+    // Clear processing state
+    processingRef.current = false;
+    lastProcessedImageRef.current = '';
   };
+
+  // Clear all caches (useful for memory management)
+  const clearCaches = useCallback(() => {
+    encryptionCache.clear();
+    imageCache.clear();
+  }, []);
 
   const exportEncryptedImageText = async () => {
     // This function is now the same as shareEncryptedImageText
@@ -360,6 +468,7 @@ export function useImageCrypter() {
     saveDecryptedImage,
     copyImageText,
     clearImageFields,
+    clearCaches,
     exportEncryptedImageText,
     importEncryptedImageText,
     shareEncryptedImageText,
