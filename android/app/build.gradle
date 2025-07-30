@@ -125,7 +125,21 @@ android {
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
+    packagingOptions {
+        pickFirst '**/libc++_shared.so'
+        pickFirst '**/libjsc.so'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/license.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/notice.txt'
+        exclude 'META-INF/ASL2.0'
+        exclude 'META-INF/*.kotlin_module'
+    }
 }
+
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
 // Accepts values in comma delimited lists, example:
@@ -174,4 +188,17 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    configurations.all {
+        exclude group: 'com.android.support'
+        exclude module: 'support-v4'
+        exclude module: 'support-annotations'
+        exclude module: 'support-compat'
+        exclude module: 'support-core-utils'
+        exclude module: 'support-core-ui'
+        exclude module: 'support-fragment'
+        exclude module: 'support-media-compat'
+        exclude module: 'support-v13'
+    }
 }
+
