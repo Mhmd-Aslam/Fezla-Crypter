@@ -85,9 +85,7 @@ npm start
   <img src="./assets/Ss04.jpg" alt="Decryption Screen" width="30%"
   style="margin-right: 50px;"/>
   <img src="./assets/Ss05.jpg" alt="Encryption Screen" width="30%" style="margin-right: 50px;"/>
-  <img src="./assets/Ss06.jpg" alt="Decryption Screen" width="30%"
-  style="margin-right: 50px;"/>
-  <img src="./assets/Ss07.jpg" alt="Encryption Screen" width="30%"/>
+  <img src="./assets/Ss06.jpg" alt="Decryption Screen" width="30%"/>
 </p>
 
 ---
