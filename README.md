@@ -107,6 +107,6 @@ MIT License
 
 ## 🔄 Version History
 
-- **v3.2.1**: Enhanced multithreading, image processing
+- **v3.2.8**: Enhanced multithreading, image processing
 - **v3.1.1**: Added image encryption
 - **v2.0**: Initial release
