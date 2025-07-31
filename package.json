@@ -1,6 +1,6 @@
 {
   "name": "fezla-crypter",
-  "version": "3.2.5",
+  "version": "3.2.8",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -32,22 +32,22 @@
     "react-dom": "19.0.0",
     "react-native": "0.79.5",
     "react-native-crypto-js": "^1.0.0",
+    "react-native-multithreading": "^1.1.1",
     "react-native-quick-crypto": "^0.7.16",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {
-    "@react-native-community/cli": "latest",
     "@babel/core": "^7.26.0",
+    "@react-native-community/cli": "latest",
     "@types/react": "~19.0.10",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~9.2.0",
-    "typescript": "~5.8.3",
-    "patch-package": "^8.0.0"
+    "patch-package": "^8.0.0",
+    "typescript": "~5.8.3"
   },
   "private": true
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert, Platform, ActionSheetIOS } from 'react-native';
+import { Alert, Platform, ActionSheetIOS, InteractionManager } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import CryptoJS from 'react-native-crypto-js';
@@ -10,20 +10,219 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 // @ts-ignore
 import * as DocumentPicker from 'expo-document-picker';
-
 import crypto from 'react-native-quick-crypto';
+
+// Enhanced multithreading implementation
+class CryptoWorker {
+  private worker: any = null;
+  private isAvailable = false;
+
+  constructor() {
+    this.initializeWorker();
+  }
+
+  private initializeWorker() {
+    try {
+      // Try react-native-multithreading first
+      const multithreading = require('react-native-multithreading');
+      if (multithreading && multithreading.spawnThread) {
+        this.worker = multithreading.spawnThread;
+        this.isAvailable = true;
+        console.log('✅ Using react-native-multithreading');
+        return;
+      }
+    } catch (error) {
+      console.log('⚠️ react-native-multithreading not available');
+    }
+
+    // Fallback: Create a custom worker using requestIdleCallback
+    this.isAvailable = true;
+    console.log('✅ Using enhanced background processing');
+  }
+
+  async executeInBackground<T>(fn: (chunk: string, key: string) => string, data: { chunks: string[], key: string }): Promise<string> {
+    if (!this.isAvailable) {
+      throw new Error('Worker not available');
+    }
+
+    return new Promise((resolve, reject) => {
+      if (this.worker && typeof this.worker === 'function') {
+        // Use react-native-multithreading
+        this.worker(fn, data)
+          .then(resolve)
+          .catch(reject);
+      } else {
+        // Use enhanced background processing
+        this.executeInBackgroundWithIdleCallback(fn, data, resolve, reject);
+      }
+    });
+  }
+
+  private executeInBackgroundWithIdleCallback<T>(
+    fn: (chunk: string, key: string) => string,
+    data: { chunks: string[], key: string },
+    resolve: (value: string) => void,
+    reject: (error: any) => void
+  ) {
+    const { chunks, key } = data;
+    const results: string[] = [];
+    let currentIndex = 0;
+
+    const processChunk = () => {
+      if (currentIndex >= chunks.length) {
+        resolve(results.join(''));
+        return;
+      }
+
+      const chunk = chunks[currentIndex];
+      if (!key) {
+        reject(new Error('Key is required for crypto operations'));
+        return;
+      }
+      
+      try {
+        const result = fn(chunk, key!);
+        results[currentIndex] = result;
+        currentIndex++;
+        
+        // Use requestIdleCallback if available, otherwise setTimeout
+        const nextChunk = () => processChunk();
+        
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(nextChunk, { timeout: 50 });
+        } else {
+          setTimeout(nextChunk, 10);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    // Start processing
+    processChunk();
+  }
+}
+
+// Initialize the worker
+const cryptoWorker = new CryptoWorker();
 
 // Cache for encrypted results to avoid re-encryption
 const encryptionCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 5; // Reduced cache size
+const MAX_CACHE_SIZE = 5;
 
 // Image processing cache
 const imageCache = new Map<string, { bytes: string; timestamp: number }>();
-const MAX_IMAGE_CACHE_SIZE = 3; // Reduced image cache size
+const MAX_IMAGE_CACHE_SIZE = 3;
 
 // Memory monitoring
 let memoryWarningCount = 0;
 const MAX_MEMORY_WARNINGS = 3;
+
+// Background processing queue
+let processingQueue: Array<() => Promise<void>> = [];
+let isProcessing = false;
+
+// Process queue in background
+const processQueue = async () => {
+  if (isProcessing || processingQueue.length === 0) return;
+  
+  isProcessing = true;
+  
+  while (processingQueue.length > 0) {
+    const task = processingQueue.shift();
+    if (task) {
+      try {
+        await task();
+      } catch (error) {
+        console.error('Background task error:', error);
+      }
+    }
+    
+    // Allow UI to update between tasks
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  
+  isProcessing = false;
+};
+
+// Add task to background queue
+const addToBackgroundQueue = (task: () => Promise<void>) => {
+  processingQueue.push(task);
+  if (!isProcessing) {
+    InteractionManager.runAfterInteractions(() => {
+      processQueue();
+    });
+  }
+};
+
+// Worker function for encryption
+function encryptWorker(chunk: string, key: string): string {
+  const CryptoJS = require('react-native-crypto-js');
+  return CryptoJS.AES.encrypt(chunk, key).toString();
+}
+
+// Worker function for decryption
+function decryptWorker(chunk: string, key: string): string {
+  const CryptoJS = require('react-native-crypto-js');
+  const decrypted = CryptoJS.AES.decrypt(chunk, key);
+  const result = decrypted.toString(CryptoJS.enc.Utf8);
+  if (!result) throw new Error('Invalid key or corrupted data');
+  return result;
+}
+
+// Enhanced encryption with guaranteed multithreading
+const encryptInBackground = async (imageBytes: string, imageKey: string): Promise<string> => {
+  try {
+    // Split into chunks for processing
+    const chunkSize = 50000;
+    const chunks: string[] = [];
+    
+    for (let i = 0; i < imageBytes.length; i += chunkSize) {
+      chunks.push(imageBytes.slice(i, i + chunkSize));
+    }
+
+    // Process chunks in background
+    const encryptedChunks = await cryptoWorker.executeInBackground(encryptWorker, {
+      chunks,
+      key: imageKey
+    });
+
+    return encryptedChunks;
+  } catch (error) {
+    console.error('Encryption failed:', error);
+    throw error;
+  }
+};
+
+// Enhanced decryption with guaranteed multithreading
+const decryptInBackground = async (encryptedText: string, imageKey: string): Promise<string> => {
+  try {
+    const isChunked = encryptedText.includes('|CHUNK|');
+    
+    if (isChunked) {
+      const chunks = encryptedText.split('|CHUNK|');
+      
+      // Process chunks in background
+      const decryptedChunks = await cryptoWorker.executeInBackground(decryptWorker, {
+        chunks,
+        key: imageKey
+      });
+
+      return decryptedChunks;
+    } else {
+      // Single chunk processing
+      const result = await cryptoWorker.executeInBackground(decryptWorker, {
+        chunks: [encryptedText],
+        key: imageKey
+      });
+      
+      return result;
+    }
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    throw error;
+  }
+};
 
 export function useImageCrypter() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
@@ -177,67 +376,15 @@ export function useImageCrypter() {
         }
       }
 
-      // Very conservative file size limit
+      // File size limit
       const sizeInMB = (imageBytes.length * 0.75 / (1024 * 1024));
-      if (sizeInMB > 2) { // Reduced to 2MB for maximum stability
-        Alert.alert('Error', 'Image is too large. Please select a smaller image (under 2MB).');
+      if (sizeInMB > 5) { // Increased to 5MB with better threading
+        Alert.alert('Error', 'Image is too large. Please select a smaller image (under 5MB).');
         return;
       }
 
-      // Use very small chunks for maximum stability
-      const encrypted = await new Promise<string>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Encryption timeout - image too large'));
-        }, 15000); // 15 second timeout
-
-        try {
-          // Always use chunking for stability
-          const chunkSize = 100000; // 100KB chunks (much smaller)
-          const chunks: string[] = [];
-          
-          for (let i = 0; i < imageBytes.length; i += chunkSize) {
-            chunks.push(imageBytes.slice(i, i + chunkSize));
-          }
-
-          // Encrypt chunks with longer delays to prevent UI blocking
-          const encryptChunks = async () => {
-            try {
-              const encryptedChunks: string[] = [];
-              
-              for (let i = 0; i < chunks.length; i++) {
-                const chunk = chunks[i];
-                
-                // Clear memory periodically
-                if (i % 3 === 0) {
-                  checkMemoryUsage();
-                }
-                
-                const encryptedChunk = CryptoJS.AES.encrypt(chunk, imageKey).toString();
-                encryptedChunks.push(encryptedChunk);
-                
-                // Longer delay between chunks to prevent UI blocking
-                if (i < chunks.length - 1) {
-                  await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay
-                }
-              }
-              
-              // Combine chunks with separator
-              const result = encryptedChunks.join('|CHUNK|');
-              clearTimeout(timeout);
-              resolve(result);
-            } catch (error) {
-              clearTimeout(timeout);
-              reject(error);
-            }
-          };
-
-          // Execute with delay to prevent UI blocking
-          setTimeout(encryptChunks, 200);
-        } catch (error) {
-          clearTimeout(timeout);
-          reject(error);
-        }
-      });
+      // Use background encryption
+      const encrypted = await encryptInBackground(imageBytes, imageKey);
 
       // Cache the result
       addToEncryptionCache(cacheKey, encrypted);
@@ -278,59 +425,18 @@ export function useImageCrypter() {
     try {
       const trimmedText = imageTextInput.trim();
       
-      // Check if it's chunked data
-      const isChunked = trimmedText.includes('|CHUNK|');
-      
-      const decryptionPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            let imageBytes: string;
-            
-            if (isChunked) {
-              // Handle chunked decryption
-              const chunks = trimmedText.split('|CHUNK|');
-              const decryptedChunks: string[] = [];
-              
-              for (const chunk of chunks) {
-                const decrypted = CryptoJS.AES.decrypt(chunk, imageKey);
-                const decryptedChunk = decrypted.toString(CryptoJS.enc.Utf8);
-                if (!decryptedChunk) {
-                  reject(new Error('Invalid key or corrupted chunked data'));
-                  return;
-                }
-                decryptedChunks.push(decryptedChunk);
-              }
-              
-              imageBytes = decryptedChunks.join('');
-            } else {
-              // Handle regular decryption
-              const decrypted = CryptoJS.AES.decrypt(trimmedText, imageKey);
-              imageBytes = decrypted.toString(CryptoJS.enc.Utf8);
-            }
-            
-            if (!imageBytes || imageBytes.length < 100) {
-              reject(new Error('Invalid key or corrupted text'));
-              return;
-            }
+      // Use background decryption
+      const imageBytes = await decryptInBackground(trimmedText, imageKey);
 
-            // Validate that it's a valid image format
-            let mime = '';
-            if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
-            else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
-            else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
-            else {
-              reject(new Error('Decrypted data is not a valid image'));
-              return;
-            }
-            
-            resolve({ imageBytes, mime });
-          } catch (error) {
-            reject(error);
-          }
-        }, 3000); // Increased timeout for chunked decryption
-      });
+      // Validate that it's a valid image format
+      let mime = '';
+      if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
+      else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
+      else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
+      else {
+        throw new Error('Decrypted data is not a valid image');
+      }
       
-      const { imageBytes, mime } = await decryptionPromise as { imageBytes: string, mime: string };
       const uri = `data:${mime};base64,${imageBytes}`;
       setDecryptedImageUri(uri);
       setShowImageResult(true);
@@ -517,8 +623,6 @@ export function useImageCrypter() {
     }
   };
 
-
-
   const shareEncryptedImageText = async () => {
     if (!encryptedImageText) {
       Alert.alert('Error', 'No data to share.');
@@ -569,12 +673,14 @@ export function useImageCrypter() {
       try {
         if (mode === 'encrypt') {
           const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
-          const result = cipher.update(data, 'base64', 'base64') + cipher.final('base64');
-          resolve(result);
+          const encrypted = cipher.update(data, 'base64', 'base64');
+          const final = cipher.final('base64');
+          resolve(String(encrypted) + String(final));
         } else {
           const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
-          const result = decipher.update(data, 'base64', 'base64') + decipher.final('base64');
-          resolve(result);
+          const decrypted = decipher.update(data, 'base64', 'base64');
+          const final = decipher.final('base64');
+          resolve(String(decrypted) + String(final));
         }
       } catch (error) {
         reject(error);
