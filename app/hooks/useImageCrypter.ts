@@ -428,15 +428,15 @@ export function useImageCrypter() {
       // Use background decryption
       const imageBytes = await decryptInBackground(trimmedText, imageKey);
 
-      // Validate that it's a valid image format
-      let mime = '';
-      if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
-      else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
-      else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
-      else {
+            // Validate that it's a valid image format
+            let mime = '';
+            if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
+            else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
+            else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
+            else {
         throw new Error('Decrypted data is not a valid image');
-      }
-      
+            }
+            
       const uri = `data:${mime};base64,${imageBytes}`;
       setDecryptedImageUri(uri);
       setShowImageResult(true);

@@ -6,7 +6,7 @@ A **high-performance secure communication app** for Android and iOS that encrypt
 
 ## 📲 Download APK
 
-👉 [Download Latest APK](https://github.com/Mhmd-Aslam/Fezla-Crypter/releases/download/v3.1.2/fezlacrypter-3.1.2-sdk.apk)
+👉 [Download Latest APK](https://github.com/Mhmd-Aslam/Fezla-Crypter/releases/download/v3.2.8/fezlacrypter-3.2.8-sdk.apk)
 
 ---
 
