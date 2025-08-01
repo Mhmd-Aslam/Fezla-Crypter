@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert, Platform, ActionSheetIOS, InteractionManager } from 'react-native';
+import { Alert, Platform, ActionSheetIOS } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import CryptoJS from 'react-native-crypto-js';
@@ -10,9 +10,9 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 // @ts-ignore
 import * as DocumentPicker from 'expo-document-picker';
-import crypto from 'react-native-quick-crypto';
+import RNFS from 'react-native-fs';
 
-// Enhanced multithreading implementation
+// Enhanced worker with file-based chunk processing
 class CryptoWorker {
   private worker: any = null;
   private isAvailable = false;
@@ -35,12 +35,28 @@ class CryptoWorker {
       console.log('⚠️ react-native-multithreading not available');
     }
 
-    // Fallback: Create a custom worker using requestIdleCallback
+    try {
+      // Try alternative multithreading approach
+      const { NativeModules } = require('react-native');
+      if (NativeModules.MultithreadingModule) {
+        this.worker = NativeModules.MultithreadingModule.spawnThread;
+        this.isAvailable = true;
+        console.log('✅ Using native multithreading module');
+        return;
+      }
+    } catch (error) {
+      console.log('⚠️ Native multithreading module not available');
+    }
+
+    // Fallback: File-based processing
     this.isAvailable = true;
-    console.log('✅ Using enhanced background processing');
+    console.log('✅ Using file-based background processing');
   }
 
-  async executeInBackground<T>(fn: (chunk: string, key: string) => string, data: { chunks: string[], key: string }): Promise<string> {
+  async executeInBackground<T>(
+    fn: (chunkPath: string, key: string) => Promise<string>,
+    data: { inputPath: string, outputPath: string, key: string, chunkSize: number }
+  ): Promise<void> {
     if (!this.isAvailable) {
       throw new Error('Worker not available');
     }
@@ -52,177 +68,166 @@ class CryptoWorker {
           .then(resolve)
           .catch(reject);
       } else {
-        // Use enhanced background processing
-        this.executeInBackgroundWithIdleCallback(fn, data, resolve, reject);
+        // Use file-based processing for large data
+        this.processFileInChunks(fn, data, resolve, reject);
       }
     });
   }
 
-  private executeInBackgroundWithIdleCallback<T>(
-    fn: (chunk: string, key: string) => string,
-    data: { chunks: string[], key: string },
-    resolve: (value: string) => void,
+  private async processFileInChunks<T>(
+    fn: (chunkPath: string, key: string) => Promise<string>,
+    data: { inputPath: string, outputPath: string, key: string, chunkSize: number },
+    resolve: () => void,
     reject: (error: any) => void
   ) {
-    const { chunks, key } = data;
-    const results: string[] = [];
-    let currentIndex = 0;
+    const { inputPath, outputPath, key, chunkSize } = data;
+    const concurrency = 4; // Optimal for memory/performance balance
+    let currentPosition = 0;
+    let activeOperations = 0;
+    let hasError = false;
 
-    const processChunk = () => {
-      if (currentIndex >= chunks.length) {
-        resolve(results.join(''));
+    try {
+      // Clear output file before starting
+      await RNFS.writeFile(outputPath, '', 'utf8');
+      
+      const fileInfo = await RNFS.stat(inputPath);
+      const totalSize = fileInfo.size;
+
+      const processNextChunk = async () => {
+        if (hasError || currentPosition >= totalSize) {
+          if (activeOperations === 0 && !hasError) {
+            resolve();
+          }
         return;
       }
 
-      const chunk = chunks[currentIndex];
-      if (!key) {
-        reject(new Error('Key is required for crypto operations'));
-        return;
-      }
+        activeOperations++;
+        const start = currentPosition;
+        const end = Math.min(start + chunkSize, totalSize);
+        currentPosition = end;
       
       try {
-        const result = fn(chunk, key!);
-        results[currentIndex] = result;
-        currentIndex++;
-        
-        // Use requestIdleCallback if available, otherwise setTimeout
-        const nextChunk = () => processChunk();
-        
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(nextChunk, { timeout: 50 });
-        } else {
-          setTimeout(nextChunk, 10);
+          // Read chunk directly from file
+          const chunk = await RNFS.read(inputPath, end - start, start, 'base64');
+          const tempChunkPath = `${RNFS.TemporaryDirectoryPath}/chunk_${Date.now()}_${Math.random()}.tmp`;
+          
+          // Write chunk to temporary file
+          await RNFS.writeFile(tempChunkPath, chunk, 'base64');
+          
+          // Process chunk through crypto function
+          const result = await fn(tempChunkPath, key);
+          
+          // Append result to output file
+          await RNFS.appendFile(outputPath, result, 'utf8');
+          
+          // Clean up temporary file
+          await RNFS.unlink(tempChunkPath);
+        } catch (error) {
+          hasError = true;
+          reject(error);
+          return;
+        } finally {
+          activeOperations--;
+        }
+
+        // Continue processing
+        if (!hasError) {
+          processNextChunk();
+        }
+      };
+
+      // Start initial batch of concurrent operations
+      for (let i = 0; i < Math.min(concurrency, Math.ceil(totalSize / chunkSize)); i++) {
+        processNextChunk();
         }
       } catch (error) {
         reject(error);
       }
-    };
-
-    // Start processing
-    processChunk();
   }
 }
 
-// Initialize the worker
+// Initialize crypto worker
 const cryptoWorker = new CryptoWorker();
 
-// Cache for encrypted results to avoid re-encryption
-const encryptionCache = new Map<string, string>();
-const MAX_CACHE_SIZE = 5;
-
-// Image processing cache
-const imageCache = new Map<string, { bytes: string; timestamp: number }>();
-const MAX_IMAGE_CACHE_SIZE = 3;
-
-// Memory monitoring
-let memoryWarningCount = 0;
-const MAX_MEMORY_WARNINGS = 3;
-
-// Background processing queue
-let processingQueue: Array<() => Promise<void>> = [];
-let isProcessing = false;
-
-// Process queue in background
-const processQueue = async () => {
-  if (isProcessing || processingQueue.length === 0) return;
-  
-  isProcessing = true;
-  
-  while (processingQueue.length > 0) {
-    const task = processingQueue.shift();
-    if (task) {
-      try {
-        await task();
-      } catch (error) {
-        console.error('Background task error:', error);
-      }
-    }
-    
-    // Allow UI to update between tasks
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  
-  isProcessing = false;
-};
-
-// Add task to background queue
-const addToBackgroundQueue = (task: () => Promise<void>) => {
-  processingQueue.push(task);
-  if (!isProcessing) {
-    InteractionManager.runAfterInteractions(() => {
-      processQueue();
-    });
-  }
-};
-
-// Worker function for encryption
-function encryptWorker(chunk: string, key: string): string {
-  const CryptoJS = require('react-native-crypto-js');
-  return CryptoJS.AES.encrypt(chunk, key).toString();
-}
-
-// Worker function for decryption
-function decryptWorker(chunk: string, key: string): string {
-  const CryptoJS = require('react-native-crypto-js');
-  const decrypted = CryptoJS.AES.decrypt(chunk, key);
-  const result = decrypted.toString(CryptoJS.enc.Utf8);
-  if (!result) throw new Error('Invalid key or corrupted data');
-  return result;
-}
-
-// Enhanced encryption with guaranteed multithreading
-const encryptInBackground = async (imageBytes: string, imageKey: string): Promise<string> => {
+// Worker functions with file-based processing
+async function encryptWorker(chunkPath: string, key: string): Promise<string> {
   try {
-    // Split into chunks for processing
-    const chunkSize = 50000;
-    const chunks: string[] = [];
-    
-    for (let i = 0; i < imageBytes.length; i += chunkSize) {
-      chunks.push(imageBytes.slice(i, i + chunkSize));
-    }
+    const chunkData = await RNFS.readFile(chunkPath, 'base64');
+    const encrypted = CryptoJS.AES.encrypt(chunkData, key).toString();
+    return encrypted + '|CHUNK|'; // Add separator
+  } catch (error) {
+    console.error('Encryption worker error:', error);
+    throw new Error('Encryption failed');
+  }
+}
 
-    // Process chunks in background
-    const encryptedChunks = await cryptoWorker.executeInBackground(encryptWorker, {
-      chunks,
-      key: imageKey
+async function decryptWorker(chunkPath: string, key: string): Promise<string> {
+  try {
+    const encryptedData = await RNFS.readFile(chunkPath, 'utf8');
+    const decrypted = CryptoJS.AES.decrypt(encryptedData, key);
+    const result = decrypted.toString(CryptoJS.enc.Utf8);
+    
+    if (!result) {
+      throw new Error('Decryption failed - invalid key or corrupted data');
+    }
+    return result;
+  } catch (error) {
+    console.error('Decryption worker error:', error);
+    throw new Error('Decryption failed');
+  }
+}
+
+// Main encryption function with file-based processing
+const encryptInBackground = async (
+  inputUri: string,
+  outputPath: string,
+  imageKey: string
+): Promise<void> => {
+  try {
+    // Determine optimal chunk size based on available memory
+    const chunkSize = 1024 * 1024; // 1MB chunks (adjust based on testing)
+    
+    await cryptoWorker.executeInBackground(encryptWorker, {
+      inputPath: inputUri,
+      outputPath,
+      key: imageKey,
+      chunkSize
     });
 
-    return encryptedChunks;
+    console.log('Encryption completed successfully');
   } catch (error) {
     console.error('Encryption failed:', error);
     throw error;
   }
 };
 
-// Enhanced decryption with guaranteed multithreading
-const decryptInBackground = async (encryptedText: string, imageKey: string): Promise<string> => {
+// Main decryption function with file-based processing
+const decryptInBackground = async (
+  inputPath: string,
+  outputPath: string,
+  imageKey: string
+): Promise<void> => {
   try {
-    const isChunked = encryptedText.includes('|CHUNK|');
+    // Use larger chunks for decryption (encrypted text is larger)
+    const chunkSize = 1.5 * 1024 * 1024; // 1.5MB chunks
     
-    if (isChunked) {
-      const chunks = encryptedText.split('|CHUNK|');
-      
-      // Process chunks in background
-      const decryptedChunks = await cryptoWorker.executeInBackground(decryptWorker, {
-        chunks,
-        key: imageKey
-      });
-
-      return decryptedChunks;
-    } else {
-      // Single chunk processing
-      const result = await cryptoWorker.executeInBackground(decryptWorker, {
-        chunks: [encryptedText],
-        key: imageKey
-      });
-      
-      return result;
-    }
+    await cryptoWorker.executeInBackground(decryptWorker, {
+      inputPath,
+      outputPath,
+      key: imageKey,
+      chunkSize
+    });
+    
+    console.log('Decryption completed successfully');
   } catch (error) {
     console.error('Decryption failed:', error);
     throw error;
   }
 };
+
+// Cache management with better memory limits
+const MAX_CACHE_SIZE = 5;
+const encryptionCache = new Map<string, string>();
 
 export function useImageCrypter() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
@@ -236,7 +241,6 @@ export function useImageCrypter() {
 
   // Refs for performance tracking
   const processingRef = useRef(false);
-  const lastProcessedImageRef = useRef<string>('');
 
   // Cache management functions
   const addToEncryptionCache = useCallback((key: string, result: string) => {
@@ -250,77 +254,127 @@ export function useImageCrypter() {
     encryptionCache.set(key, result);
   }, []);
 
-  const addToImageCache = useCallback((uri: string, bytes: string) => {
-    if (imageCache.size >= MAX_IMAGE_CACHE_SIZE) {
-      // Remove oldest entry
-      const firstKey = imageCache.keys().next().value;
-      if (firstKey) {
-        imageCache.delete(firstKey);
-      }
-    }
-    imageCache.set(uri, { bytes, timestamp: Date.now() });
-  }, []);
-
-  const getFromImageCache = useCallback((uri: string) => {
-    const cached = imageCache.get(uri);
-    if (cached && Date.now() - cached.timestamp < 300000) { // 5 minutes cache
-      return cached.bytes;
-    }
-    return null;
-  }, []);
-
   // Generate cache key for encryption
   const generateCacheKey = useCallback((imageUri: string, key: string) => {
     return `${imageUri}_${key}`;
   }, []);
 
-  // New: pick image from gallery or camera
+  // Memory cleanup function
+  const cleanupMemory = useCallback(() => {
+    try {
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
+    } catch (error) {
+      console.error('Memory cleanup error:', error);
+    }
+  }, []);
+
   const pickImage = async () => {
     const pickFromLibrary = async () => {
-      let result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.8,
-        base64: false, // Don't get base64, we'll get bytes
-      });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedImage(result.assets[0]);
+      try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: false,
+          quality: 0.8,
+          base64: false,
+        });
+
+        if (!result.canceled && result.assets && result.assets[0]) {
+          const selectedAsset = result.assets[0];
+          
+          // Check file size before processing
+          const fileInfo = await FileSystem.getInfoAsync(selectedAsset.uri);
+          const sizeInMB = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size || 0) / (1024 * 1024) : 0;
+          
+          if (sizeInMB > 50) { // Increased limit for file-based processing
+            Alert.alert(
+              'Large Image',
+              'This image is quite large. Processing may take longer. Continue?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Continue', onPress: () => setSelectedImage(selectedAsset) }
+              ]
+            );
+            return;
+          }
+          
+          setSelectedImage(selectedAsset);
+          setEncryptedImageText('');
+          setShowImageResult(false);
+        }
+      } catch (error) {
+        console.error('Error picking from library:', error);
+        Alert.alert('Error', 'Failed to pick image from library');
       }
     };
+
     const pickFromCamera = async () => {
-      let result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.8,
-        base64: false, // Don't get base64, we'll get bytes
-      });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedImage(result.assets[0]);
+      try {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Camera permission is required to take photos');
+          return;
+        }
+
+        const result = await ImagePicker.launchCameraAsync({
+          allowsEditing: false,
+          quality: 0.8,
+          base64: false,
+        });
+
+        if (!result.canceled && result.assets && result.assets[0]) {
+          const selectedAsset = result.assets[0];
+          
+          // Check file size before processing
+          const fileInfo = await FileSystem.getInfoAsync(selectedAsset.uri);
+          const sizeInMB = fileInfo.exists && 'size' in fileInfo ? (fileInfo.size || 0) / (1024 * 1024) : 0;
+          
+          if (sizeInMB > 50) {
+            Alert.alert(
+              'Large Image',
+              'This image is quite large. Processing may take longer. Continue?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Continue', onPress: () => setSelectedImage(selectedAsset) }
+              ]
+            );
+            return;
+          }
+          
+          setSelectedImage(selectedAsset);
+          setEncryptedImageText('');
+          setShowImageResult(false);
+        }
+      } catch (error) {
+        console.error('Error taking photo:', error);
+        Alert.alert('Error', 'Failed to take photo');
       }
     };
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Cancel', 'Pick from Gallery', 'Take Photo'],
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
           cancelButtonIndex: 0,
         },
-        async (buttonIndex) => {
+        (buttonIndex) => {
           if (buttonIndex === 1) {
-            await pickFromLibrary();
+            pickFromCamera();
           } else if (buttonIndex === 2) {
-            await pickFromCamera();
+            pickFromLibrary();
           }
         }
       );
     } else {
-      // For Android, use Alert as a simple action sheet
       Alert.alert(
-        'Select Image Source',
-        undefined,
+        'Select Image',
+        'Choose how to select an image',
         [
-          { text: 'Pick from Gallery', onPress: pickFromLibrary },
-          { text: 'Take Photo', onPress: pickFromCamera },
           { text: 'Cancel', style: 'cancel' },
+          { text: 'Take Photo', onPress: pickFromCamera },
+          { text: 'Choose from Library', onPress: pickFromLibrary },
         ]
       );
     }
@@ -352,108 +406,121 @@ export function useImageCrypter() {
         return;
       }
 
-      // Check if we have cached image bytes
-      let imageBytes = getFromImageCache(imageUri);
+      // Convert file URI to RNFS path if needed
+      let inputPath = imageUri;
+      if (imageUri.startsWith('file://')) {
+        inputPath = imageUri.replace('file://', '');
+      }
+
+      const tempPath = `${RNFS.TemporaryDirectoryPath}/encrypted-${Date.now()}.crypt`;
       
-      if (!imageBytes) {
-        // Read image as bytes with better error handling
-        try {
-          imageBytes = await FileSystem.readAsStringAsync(imageUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          
-          if (!imageBytes) {
-            Alert.alert('Error', 'Failed to read image data.');
-            return;
-          }
-
-          // Cache the image bytes for future use
-          addToImageCache(imageUri, imageBytes);
-        } catch (readError) {
-          console.error('File read error:', readError);
-          Alert.alert('Error', 'Failed to read image file. Please try again.');
-          return;
-        }
-      }
-
-      // File size limit
-      const sizeInMB = (imageBytes.length * 0.75 / (1024 * 1024));
-      if (sizeInMB > 5) { // Increased to 5MB with better threading
-        Alert.alert('Error', 'Image is too large. Please select a smaller image (under 5MB).');
-        return;
-      }
-
-      // Use background encryption
-      const encrypted = await encryptInBackground(imageBytes, imageKey);
+      // Process directly from file URI to file
+      await encryptInBackground(inputPath, tempPath, imageKey);
+      
+      // Read result only when needed
+      const encryptedResult = await RNFS.readFile(tempPath, 'utf8');
 
       // Cache the result
-      addToEncryptionCache(cacheKey, encrypted);
+      addToEncryptionCache(cacheKey, encryptedResult);
       
-      setEncryptedImageText(encrypted);
+      setEncryptedImageText(encryptedResult);
       setShowImageResult(true);
-      lastProcessedImageRef.current = imageUri;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
+      // Clean up temporary file
+      await RNFS.unlink(tempPath);
+      
+      console.log('Encryption completed successfully');
     } catch (error) {
       console.error('Encryption error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      if (errorMessage.includes('timeout')) {
-        Alert.alert('Error', 'Image is too large or complex. Please try with a smaller image.');
-      } else if (errorMessage.includes('memory')) {
-        Alert.alert('Error', 'Not enough memory to process this image. Please try with a smaller image.');
-      } else {
-        Alert.alert('Error', 'Image encryption failed. Please try with a smaller image.');
-      }
+      Alert.alert('Error', 'Failed to encrypt image. Please try again with a different key.');
     } finally {
       setIsEncryptingImage(false);
       processingRef.current = false;
       
-      // Force garbage collection if possible
-      if (global.gc) {
-        global.gc();
-      }
+      // Clean up memory after encryption
+      cleanupMemory();
     }
   };
 
-  const decryptImage = async () => {
+    const decryptImage = async () => {
     if (!imageTextInput.trim() || !imageKey.trim()) {
       Alert.alert('Error', 'Please paste the encrypted text and enter the key');
       return;
     }
+
+    // Prevent multiple simultaneous operations
+    if (processingRef.current) {
+      return;
+    }
+    processingRef.current = true;
     setIsDecryptingImage(true);
+
     try {
       const trimmedText = imageTextInput.trim();
       
-      // Use background decryption
-      const imageBytes = await decryptInBackground(trimmedText, imageKey);
-
-            // Validate that it's a valid image format
-            let mime = '';
-            if (imageBytes.startsWith('/9j/')) mime = 'image/jpeg';
-            else if (imageBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
-            else if (imageBytes.startsWith('R0lGODlh')) mime = 'image/gif';
-            else {
+      console.log('Starting decryption...');
+      
+      // Check if the encrypted text is large
+      const textSize = trimmedText.length;
+      const sizeInMB = (textSize * 2) / (1024 * 1024); // Approximate size in MB
+      
+      const tempInputPath = `${RNFS.TemporaryDirectoryPath}/decrypt-input-${Date.now()}.tmp`;
+      const tempOutputPath = `${RNFS.TemporaryDirectoryPath}/decrypted-${Date.now()}.bin`;
+      
+      // Write encrypted text to temp file using appropriate method
+      if (sizeInMB > 50) {
+        // For large encrypted text, use RNFS for better performance
+        await RNFS.writeFile(tempInputPath, trimmedText, 'utf8');
+      } else {
+        // For smaller text, use FileSystem
+        await FileSystem.writeAsStringAsync(tempInputPath, trimmedText, { 
+          encoding: FileSystem.EncodingType.UTF8 
+        });
+      }
+      
+      // Process through file system
+      await decryptInBackground(tempInputPath, tempOutputPath, imageKey);
+      
+      // Read the decrypted result
+      const decryptedBytes = await RNFS.readFile(tempOutputPath, 'base64');
+      
+      // Validate that it's a valid image format
+      let mime = '';
+      if (decryptedBytes.startsWith('/9j/')) mime = 'image/jpeg';
+      else if (decryptedBytes.startsWith('iVBORw0KGgo')) mime = 'image/png';
+      else if (decryptedBytes.startsWith('R0lGODlh')) mime = 'image/gif';
+      else {
         throw new Error('Decrypted data is not a valid image');
-            }
+      }
             
-      const uri = `data:${mime};base64,${imageBytes}`;
+      const uri = `data:${mime};base64,${decryptedBytes}`;
       setDecryptedImageUri(uri);
       setShowImageResult(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Clean up temporary files
+      await RNFS.unlink(tempInputPath);
+      await RNFS.unlink(tempOutputPath);
+      
+      console.log('Decryption completed successfully');
     } catch (error) {
+      console.error('Decryption error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage === 'Invalid key or corrupted text') {
-        Alert.alert('Error', 'Invalid key or corrupted text. Please check your key and encrypted text.');
-      } else if (errorMessage === 'Decrypted data is not a valid image') {
+      
+      if (errorMessage.includes('Invalid key') || errorMessage.includes('corrupted')) {
+        Alert.alert('Error', 'Invalid key or corrupted data. Please check your key and encrypted text.');
+      } else if (errorMessage.includes('not a valid image')) {
         Alert.alert('Error', 'The decrypted data is not a valid image. Please check your encrypted text.');
-      } else if (errorMessage.includes('chunked')) {
-        Alert.alert('Error', 'Invalid key or corrupted chunked data. Please check your key and encrypted text.');
       } else {
-        Alert.alert('Error', 'Image decryption failed. Please check your key and encrypted text.');
+        Alert.alert('Error', 'Failed to decrypt image. Please check your key and encrypted text.');
       }
     } finally {
       setIsDecryptingImage(false);
+      processingRef.current = false;
+      
+      // Clean up memory after decryption
+      cleanupMemory();
     }
   };
 
@@ -493,7 +560,7 @@ export function useImageCrypter() {
       
       // Try to create album, but don't fail if it doesn't work
       try {
-      await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
+        await MediaLibrary.createAlbumAsync('Fezla Crypter', asset, false);
       } catch (albumError) {
         // Album creation failed, but asset is still saved
         console.log('Album creation failed, but image was saved');
@@ -504,7 +571,7 @@ export function useImageCrypter() {
       // Clean up the temporary file
       setTimeout(async () => {
         try {
-      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+          await FileSystem.deleteAsync(tempUri, { idempotent: true });
         } catch (err) {
           // Ignore cleanup errors
         }
@@ -539,49 +606,19 @@ export function useImageCrypter() {
     
     // Clear processing state
     processingRef.current = false;
-    lastProcessedImageRef.current = '';
   };
 
   // Clear all caches (useful for memory management)
   const clearCaches = useCallback(() => {
     encryptionCache.clear();
-    imageCache.clear();
-  }, []);
-
-  // Memory management - clear old entries
-  const cleanupMemory = useCallback(() => {
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    
-    // Clear old image cache entries
-    for (const [key, value] of imageCache.entries()) {
-      if (now - value.timestamp > fiveMinutes) {
-        imageCache.delete(key);
-      }
-    }
-    
-    // Keep only last 3 encryption results (reduced)
-    if (encryptionCache.size > 3) {
-      const entries = Array.from(encryptionCache.entries());
-      const toDelete = entries.slice(0, entries.length - 3);
-      toDelete.forEach(([key]) => encryptionCache.delete(key));
-    }
   }, []);
 
   // Memory monitoring function
   const checkMemoryUsage = useCallback(() => {
     try {
       // Simple memory check - if we're processing large data, clear caches
-      if (imageCache.size > 2 || encryptionCache.size > 3) {
+      if (encryptionCache.size > 3) {
         cleanupMemory();
-        memoryWarningCount++;
-        
-        if (memoryWarningCount > MAX_MEMORY_WARNINGS) {
-          // Force clear all caches if too many warnings
-          imageCache.clear();
-          encryptionCache.clear();
-          memoryWarningCount = 0;
-        }
       }
     } catch (error) {
       console.error('Memory check error:', error);
@@ -605,6 +642,34 @@ export function useImageCrypter() {
       }
       
       const fileUri = res.assets[0]!.uri;
+      
+      // Convert file URI to RNFS path if needed
+      let inputPath = fileUri;
+      if (fileUri.startsWith('file://')) {
+        inputPath = fileUri.replace('file://', '');
+      }
+      
+      // Check file size before processing
+      try {
+        const fileInfo = await RNFS.stat(inputPath);
+        const sizeInMB = fileInfo.size / (1024 * 1024);
+        
+        if (sizeInMB > 100) { // 100MB limit for text files
+          Alert.alert(
+            'Large File',
+            'This file is very large. Processing may take longer. Continue?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Continue', onPress: () => processLargeFile(inputPath) }
+            ]
+          );
+          return;
+        }
+      } catch (statError) {
+        console.log('Could not get file size, proceeding with import');
+      }
+      
+      // For smaller files, read directly
       const content = await FileSystem.readAsStringAsync(fileUri, { 
         encoding: FileSystem.EncodingType.UTF8 
       });
@@ -623,6 +688,75 @@ export function useImageCrypter() {
     }
   };
 
+  // Helper function to process large text files in chunks
+  const processLargeFile = async (inputPath: string) => {
+    try {
+      const tempOutputPath = `${RNFS.TemporaryDirectoryPath}/imported-text-${Date.now()}.txt`;
+      
+      // Read file in chunks and write to temporary file
+      const chunkSize = 1024 * 1024; // 1MB chunks
+      const fileInfo = await RNFS.stat(inputPath);
+      const totalSize = fileInfo.size;
+      
+      // Clear output file
+      await RNFS.writeFile(tempOutputPath, '', 'utf8');
+      
+      let currentPosition = 0;
+      const concurrency = 4;
+      let activeOperations = 0;
+      let hasError = false;
+      
+      const processNextChunk = async () => {
+        if (hasError || currentPosition >= totalSize) {
+          if (activeOperations === 0 && !hasError) {
+            // Read the complete processed file
+            const finalContent = await RNFS.readFile(tempOutputPath, 'utf8');
+            setImageTextInput(finalContent);
+            Alert.alert('Success', 'Large encrypted text file imported successfully!');
+            
+            // Clean up temporary file
+            await RNFS.unlink(tempOutputPath);
+          }
+          return;
+        }
+        
+        activeOperations++;
+        const start = currentPosition;
+        const end = Math.min(start + chunkSize, totalSize);
+        currentPosition = end;
+        
+        try {
+          // Read chunk from input file
+          const chunk = await RNFS.read(inputPath, end - start, start, 'utf8');
+          
+          // Append chunk to output file
+          await RNFS.appendFile(tempOutputPath, chunk, 'utf8');
+        } catch (error) {
+          hasError = true;
+          console.error('Chunk processing error:', error);
+          Alert.alert('Error', 'Failed to process large file. Please try again.');
+          return;
+        } finally {
+          activeOperations--;
+        }
+        
+        // Continue processing
+        if (!hasError) {
+          processNextChunk();
+        }
+      };
+      
+      // Start initial batch of concurrent operations
+      for (let i = 0; i < Math.min(concurrency, Math.ceil(totalSize / chunkSize)); i++) {
+        processNextChunk();
+      }
+      
+    } catch (error) {
+      console.error('Large file processing error:', error);
+      Alert.alert('Error', 'Failed to process large file. Please try again.');
+    }
+  };
+
   const shareEncryptedImageText = async () => {
     if (!encryptedImageText) {
       Alert.alert('Error', 'No data to share.');
@@ -633,10 +767,20 @@ export function useImageCrypter() {
       const filename = `fezdata_${timestamp}.txt`;
       const fileUri = FileSystem.documentDirectory + filename;
       
-      // Write the encrypted text to file
-      await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { 
-        encoding: FileSystem.EncodingType.UTF8 
-      });
+      // Check if the encrypted text is large
+      const textSize = encryptedImageText.length;
+      const sizeInMB = (textSize * 2) / (1024 * 1024); // Approximate size in MB
+      
+      if (sizeInMB > 50) { // For large encrypted text
+        // Use RNFS for better performance with large files
+        const rnfsPath = fileUri.replace('file://', '');
+        await RNFS.writeFile(rnfsPath, encryptedImageText, 'utf8');
+      } else {
+        // Use FileSystem for smaller files
+        await FileSystem.writeAsStringAsync(fileUri, encryptedImageText, { 
+          encoding: FileSystem.EncodingType.UTF8 
+        });
+      }
 
       // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync();
@@ -666,37 +810,6 @@ export function useImageCrypter() {
       Alert.alert('Error', 'Failed to share data. Please try again.');
     }
   };
-
-  // Helper to run crypto operations (simplified without threading)
-  async function runCryptoOperation({ data, key, iv, mode }: { data: string, key: string, iv: string, mode: 'encrypt' | 'decrypt' }): Promise<string> {
-    return new Promise((resolve, reject) => {
-      try {
-        if (mode === 'encrypt') {
-          const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
-          const encrypted = cipher.update(data, 'base64', 'base64');
-          const final = cipher.final('base64');
-          resolve(String(encrypted) + String(final));
-        } else {
-          const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key, 'base64'), Buffer.from(iv, 'base64'));
-          const decrypted = decipher.update(data, 'base64', 'base64');
-          const final = decipher.final('base64');
-          resolve(String(decrypted) + String(final));
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  // Example: Encrypt image as base64 string
-  async function encryptImageBase64(imageBase64: string, keyB64: string, ivB64: string): Promise<string> {
-    return await runCryptoOperation({ data: imageBase64, key: keyB64, iv: ivB64, mode: 'encrypt' });
-  }
-
-  // Example: Decrypt image as base64 string
-  async function decryptImageBase64(encryptedBase64: string, keyB64: string, ivB64: string): Promise<string> {
-    return await runCryptoOperation({ data: encryptedBase64, key: keyB64, iv: ivB64, mode: 'decrypt' });
-  }
 
   return {
     selectedImage,

@@ -262,8 +262,9 @@ export default function CrypterApp() {
                   </View>
                   {imageCrypter.isEncryptingImage && (
                     <View style={styles.progressContainer}>
-                      <Text style={styles.progressText}>Processing...</Text>
-                      <Text style={styles.progressSubtext}>Please wait, this may take a few seconds</Text>
+                      <ActivityIndicator size="large" color="#00d4ff" style={{ marginBottom: 10 }} />
+                      <Text style={styles.progressText}>Encrypting Image...</Text>
+                      <Text style={styles.progressSubtext}>Please wait, this may take a few seconds for large images</Text>
                     </View>
                   )}
                   {imageCrypter.showImageResult && !!imageCrypter.encryptedImageText && (
@@ -343,6 +344,13 @@ export default function CrypterApp() {
                       <Text style={styles.clearButtonText}>Clear</Text>
                     </TouchableOpacity>
                   </View>
+                  {imageCrypter.isDecryptingImage && (
+                    <View style={styles.progressContainer}>
+                      <ActivityIndicator size="large" color="#00d4ff" style={{ marginBottom: 10 }} />
+                      <Text style={styles.progressText}>Decrypting Image...</Text>
+                      <Text style={styles.progressSubtext}>Please wait, this may take a few seconds for large images</Text>
+                    </View>
+                  )}
                   {imageCrypter.showImageResult && !!imageCrypter.decryptedImageUri && (
                     <View style={{ alignItems: 'center', marginVertical: 10 }}>
                       <Image source={{ uri: imageCrypter.decryptedImageUri }} style={{ width: 180, height: 180, borderRadius: 10 }} />
